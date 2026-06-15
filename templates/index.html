@@ -175,7 +175,11 @@
             <label class="form-label fw-semibold">Despatch Date</label>
             <input type="date" id="bill-despatch-date" class="form-control">
           </div>
-          <div class="col-md-2 d-flex align-items-end">
+          <div class="col-md-2">
+            <label class="form-label fw-semibold">Next Bill No.</label>
+            <input type="text" id="bill-next-no" class="form-control" readonly style="background:#f8fafc;color:#4f46e5;font-weight:600;" placeholder="BILL-XXXX">
+          </div>
+          <div class="col-md-1 d-flex align-items-end">
             <button class="btn btn-outline-secondary w-100" onclick="clearBill()" title="Start fresh">
               <i class="bi bi-arrow-counterclockwise"></i> Clear
             </button>
@@ -251,6 +255,10 @@
           <input type="text" id="rec-client-filter" class="form-control form-control-sm" placeholder="Search by client...">
         </div>
         <div class="col-md-2">
+          <label class="form-label mb-1 small fw-semibold">Packing Slip</label>
+          <input type="text" id="rec-slip-filter" class="form-control form-control-sm" placeholder="Search by slip...">
+        </div>
+        <div class="col-md-2">
           <label class="form-label mb-1 small fw-semibold">From</label>
           <input type="date" id="rec-from" class="form-control form-control-sm">
         </div>
@@ -258,9 +266,10 @@
           <label class="form-label mb-1 small fw-semibold">To</label>
           <input type="date" id="rec-to" class="form-control form-control-sm">
         </div>
-        <div class="col-md-2">
+        <div class="col-md-3 d-flex align-items-end gap-1 flex-wrap">
           <button class="btn btn-primary btn-sm" onclick="loadRecords()"><i class="bi bi-search"></i> Search</button>
-          <button class="btn btn-outline-secondary btn-sm ms-1" onclick="clearRecordFilters()">Clear</button>
+          <button class="btn btn-outline-secondary btn-sm" onclick="clearRecordFilters()">Clear</button>
+          <button class="btn btn-outline-success btn-sm" onclick="printSelectedBills()" title="Print selected bills"><i class="bi bi-printer"></i> Print Selected</button>
         </div>
       </div>
     </div>
@@ -270,17 +279,19 @@
           <table class="table table-hover mb-0">
             <thead>
               <tr>
+                <th style="width:32px;"><input type="checkbox" id="rec-select-all" onclick="toggleAllBillCheckboxes(this)" title="Select all"></th>
                 <th>Bill No.</th>
                 <th>Client</th>
                 <th>Packing Slip</th>
                 <th>Despatch Date</th>
-                <th>Grand Total</th>
+                <th class="text-center">Grand Total</th>
+                <th>By</th>
                 <th>Created On</th>
                 <th></th>
               </tr>
             </thead>
             <tbody id="records-body">
-              <tr><td colspan="7" class="text-center text-muted py-4">Loading...</td></tr>
+              <tr><td colspan="9" class="text-center text-muted py-4">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -431,6 +442,22 @@
         </div>
       </div>
 
+      <!-- Backup -->
+      <div class="row g-3 mb-4">
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header fw-semibold"><i class="bi bi-database-down"></i> Database Backup</div>
+            <div class="card-body">
+              <p class="text-muted small mb-2">Download the full database file. Save it to Google Drive or iCloud daily to keep your data safe.</p>
+              <a class="btn btn-outline-primary btn-sm" href="/api/backup">
+                <i class="bi bi-download"></i> Download Backup
+              </a>
+              <div class="mt-2 text-muted" style="font-size:0.78rem;"><i class="bi bi-info-circle"></i> Run this daily and save to Google Drive / iCloud for safety.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- User Management -->
       <div class="d-flex align-items-center justify-content-between mb-2">
         <h6 class="fw-bold mb-0"><i class="bi bi-people"></i> Users</h6>
@@ -476,10 +503,11 @@
         <div style="font-size:0.8rem;color:#555;" id="pb-created"></div>
       </div>
     </div>
-    <div class="print-meta">
+    <div class="print-meta" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr;">
       <div class="print-meta-item"><span>Client</span><strong id="pb-client"></strong></div>
       <div class="print-meta-item"><span>Packing Slip No.</span><strong id="pb-slip"></strong></div>
       <div class="print-meta-item"><span>Despatch Date</span><strong id="pb-despatch"></strong></div>
+      <div class="print-meta-item"><span>Created By</span><strong id="pb-created-by"></strong></div>
       <div class="print-meta-item"><span>Total Amount</span><strong id="pb-total" style="font-size:1rem;color:#1565c0;"></strong></div>
     </div>
     <table class="table table-bordered table-sm" id="pb-items-table">
@@ -820,7 +848,7 @@ function showView(name) {
 }
 
 // ─────────────────────────── New Bill ───────────────────────────
-function clearBill(full = true) {
+async function clearBill(full = true) {
   if (full) {
     document.getElementById('bill-client-input').value = '';
     document.getElementById('bill-client-id').value = '';
@@ -832,6 +860,9 @@ function clearBill(full = true) {
   STATE.billRowCount = 0;
   addBillRow();
   recalcGrandTotal();
+  // Load upcoming bill number
+  const r = await api('GET', '/api/bills/next_no');
+  if (r.bill_no) document.getElementById('bill-next-no').value = r.bill_no;
 }
 
 function addBillRow() {
@@ -1145,9 +1176,10 @@ function renderPrintView(bill, items) {
   document.getElementById('pb-bill-no').textContent   = bill.bill_no || '';
   document.getElementById('pb-created').textContent   = bill.created_at || '';
   document.getElementById('pb-client').textContent    = bill.client_name || '';
-  document.getElementById('pb-slip').textContent      = bill.packing_slip_no || '—';
-  document.getElementById('pb-despatch').textContent  = bill.despatch_date || '—';
-  document.getElementById('pb-total').textContent     = '₹ ' + fmt(bill.grand_total || 0);
+  document.getElementById('pb-slip').textContent       = bill.packing_slip_no || '—';
+  document.getElementById('pb-despatch').textContent   = bill.despatch_date || '—';
+  document.getElementById('pb-created-by').textContent = bill.created_by || '—';
+  document.getElementById('pb-total').textContent      = '₹ ' + fmt(bill.grand_total || 0);
   document.getElementById('pb-grand-total').textContent = '₹ ' + fmt(bill.grand_total || 0);
 
   const tbody = document.getElementById('pb-items-body');
@@ -1182,24 +1214,28 @@ async function loadRecords() {
   const from   = document.getElementById('rec-from').value;
   const to     = document.getElementById('rec-to').value;
   const client = document.getElementById('rec-client-filter').value;
+  const slip   = document.getElementById('rec-slip-filter').value;
   let   url    = '/api/bills?x=1';
   if (from)   url += `&from=${from}`;
   if (to)     url += `&to=${to}`;
   if (client) url += `&client=${enc(client)}`;
+  if (slip)   url += `&slip=${enc(slip)}`;
 
   const bills = await api('GET', url);
   const tbody = document.getElementById('records-body');
   if (!bills.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No bills found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No bills found.</td></tr>';
     return;
   }
   tbody.innerHTML = bills.map(b => `
     <tr>
+      <td><input type="checkbox" class="rec-bill-cb" value="${b.id}"></td>
       <td><strong>${b.bill_no}</strong></td>
       <td>${b.client_name}</td>
       <td>${b.packing_slip_no || '—'}</td>
       <td>${b.despatch_date || '—'}</td>
-      <td class="text-end"><strong>₹${fmt(b.grand_total)}</strong></td>
+      <td class="text-center"><strong>₹${fmt(b.grand_total)}</strong></td>
+      <td>${b.created_by || '—'}</td>
       <td>${b.created_at}</td>
       <td>
         <button class="btn btn-sm btn-outline-primary" onclick="viewBill(${b.id})">
@@ -1213,7 +1249,18 @@ function clearRecordFilters() {
   document.getElementById('rec-from').value = '';
   document.getElementById('rec-to').value   = '';
   document.getElementById('rec-client-filter').value = '';
+  document.getElementById('rec-slip-filter').value   = '';
   loadRecords();
+}
+
+function toggleAllBillCheckboxes(masterCb) {
+  document.querySelectorAll('.rec-bill-cb').forEach(cb => cb.checked = masterCb.checked);
+}
+
+function printSelectedBills() {
+  const ids = [...document.querySelectorAll('.rec-bill-cb:checked')].map(cb => cb.value);
+  if (!ids.length) { showToast('Select at least one bill to print', 'warning'); return; }
+  window.open(`/print/bills?ids=${ids.join(',')}`, '_blank');
 }
 
 let modalBillId = null;
@@ -1246,10 +1293,11 @@ async function viewBill(id) {
 
   document.getElementById('vbm-body').innerHTML = `
     <div class="row mb-3">
-      <div class="col-6 col-md-3"><small class="text-muted">Bill No.</small><br><strong>${b.bill_no}</strong></div>
-      <div class="col-6 col-md-3"><small class="text-muted">Packing Slip</small><br><strong>${b.packing_slip_no || '—'}</strong></div>
-      <div class="col-6 col-md-3"><small class="text-muted">Despatch Date</small><br><strong>${b.despatch_date || '—'}</strong></div>
+      <div class="col-6 col-md-2"><small class="text-muted">Bill No.</small><br><strong>${b.bill_no}</strong></div>
+      <div class="col-6 col-md-2"><small class="text-muted">Packing Slip</small><br><strong>${b.packing_slip_no || '—'}</strong></div>
+      <div class="col-6 col-md-2"><small class="text-muted">Despatch Date</small><br><strong>${b.despatch_date || '—'}</strong></div>
       <div class="col-6 col-md-3"><small class="text-muted">Created On</small><br><strong>${b.created_at}</strong></div>
+      <div class="col-6 col-md-3"><small class="text-muted">Created By</small><br><strong>${b.created_by || '—'}</strong></div>
     </div>
     <div class="table-responsive">
       <table class="table table-bordered table-sm">
@@ -1293,8 +1341,6 @@ async function loadClients(q = '') {
     return;
   }
   tbody.innerHTML = clients.map(c => {
-    const discStr = c.discount_value > 0
-      : 'None';
     const discStr = c.discount_value > 0 ? `${c.discount_value}%` : 'None';
     return `<tr>
       <td><strong>${c.name}</strong></td>

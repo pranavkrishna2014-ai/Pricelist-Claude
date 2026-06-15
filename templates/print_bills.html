@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Print Bills</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 11pt; background: #fff; margin: 0; padding: 12px; }
+  .no-print { margin-bottom: 16px; }
+  @media print { .no-print { display: none !important; } }
+  .bill-page { max-width: 780px; margin: 0 auto 40px auto; padding: 18px 20px; border: 1px solid #ccc; page-break-after: always; }
+  .bill-page:last-child { page-break-after: auto; }
+  .print-header { border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-start; }
+  .print-meta { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+  .print-meta-item span:first-child { color: #666; display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+  th, td { border: 1px solid #ccc; padding: 3px 5px; vertical-align: middle; }
+  th { background: #eee; text-align: left; }
+  .text-end { text-align: right; }
+  .text-center { text-align: center; }
+  .print-footer { margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .sign-box { border-top: 1px solid #333; padding-top: 6px; font-size: 0.78rem; color: #555; text-align: center; }
+  .grand-total-row { font-weight: 700; background: #f8f9fa; }
+</style>
+</head>
+<body>
+<div class="no-print">
+  <button onclick="window.print()" style="padding:8px 16px;font-size:1rem;cursor:pointer;">Print / Save as PDF</button>
+  <button onclick="window.close()" style="padding:8px 16px;font-size:1rem;cursor:pointer;margin-left:8px;">Close</button>
+</div>
+
+{% for entry in bills %}
+<div class="bill-page">
+  <div class="print-header">
+    <div>
+      <h4 style="margin:0;font-weight:700;">{{ company_name }}</h4>
+      <div style="font-size:0.85rem;color:#555;">Dispatch Reference Sheet</div>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:1.1rem;font-weight:700;">{{ entry.bill.bill_no }}</div>
+      <div style="font-size:0.8rem;color:#555;">{{ entry.bill.created_at }}</div>
+    </div>
+  </div>
+  <div class="print-meta">
+    <div class="print-meta-item"><span>Client</span><strong>{{ entry.bill.client_name }}</strong></div>
+    <div class="print-meta-item"><span>Packing Slip No.</span><strong>{{ entry.bill.packing_slip_no or '—' }}</strong></div>
+    <div class="print-meta-item"><span>Despatch Date</span><strong>{{ entry.bill.despatch_date or '—' }}</strong></div>
+    <div class="print-meta-item"><span>Created By</span><strong>{{ entry.bill.created_by or '—' }}</strong></div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:24px;">#</th>
+        <th style="width:60px;">Brand</th>
+        <th>Product</th>
+        <th style="width:70px;">Size</th>
+        <th style="width:32px;">H.</th>
+        <th style="width:28px;">Qty</th>
+        <th style="width:80px;">Price (₹)</th>
+        <th style="width:40px;">Disc.</th>
+        <th style="width:84px;">Total (₹)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in entry.items %}
+      <tr>
+        <td>{{ item.sno }}</td>
+        <td>{{ item.brand }}</td>
+        <td>{{ item.product }}</td>
+        <td>{{ item.size_code }}<br><small style="color:#666;">{{ item.size_metric }}</small></td>
+        <td>{{ item.thickness }}</td>
+        <td class="text-center">{{ item.quantity }}</td>
+        <td class="text-end">₹{{ "%.2f"|format(item.unit_price) }}</td>
+        <td class="text-center">{{ ("%.2f"|format(item.discount_value) + "%") if item.discount_value > 0 else "—" }}</td>
+        <td class="text-end"><strong>₹{{ "%.2f"|format(item.total_value) }}</strong></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr class="grand-total-row">
+        <td colspan="7" class="text-end">Grand Total:</td>
+        <td></td>
+        <td class="text-end">₹{{ "%.2f"|format(entry.bill.grand_total) }}</td>
+      </tr>
+    </tfoot>
+  </table>
+  <div class="print-footer">
+    <div class="sign-box">Prepared by</div>
+    <div class="sign-box">Checked by</div>
+    <div class="sign-box">Authorised by</div>
+  </div>
+  <div style="margin-top:12px;font-size:0.75rem;color:#999;text-align:center;">
+    This document is for internal reference only. Not a tax invoice.
+  </div>
+</div>
+{% endfor %}
+</body>
+</html>

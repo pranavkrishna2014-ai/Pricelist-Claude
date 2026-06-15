@@ -1,5 +1,5 @@
-from flask import Flask, render_template, request, jsonify, session, send_file
-import sqlite3, hashlib, os, io
+from flask import Flask, render_template, request, jsonify, session, send_file, Response
+import sqlite3, hashlib, os, io, datetime
 from functools import wraps
 
 app = Flask(__name__)
@@ -79,7 +79,8 @@ def init_db():
             client_name TEXT NOT NULL,
             despatch_date TEXT DEFAULT '',
             grand_total REAL DEFAULT 0,
-            created_at TEXT DEFAULT (datetime('now','localtime'))
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            created_by TEXT DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS bill_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,6 +99,13 @@ def init_db():
             FOREIGN KEY(bill_id) REFERENCES bills(id) ON DELETE CASCADE
         );
     ''')
+
+    # Add created_by column if it doesn't exist (migration for existing DBs)
+    try:
+        conn.execute("ALTER TABLE bills ADD COLUMN created_by TEXT DEFAULT ''")
+        conn.commit()
+    except Exception:
+        pass
 
     c.execute("INSERT OR IGNORE INTO settings VALUES ('bill_counter', '1')")
     c.execute("INSERT OR IGNORE INTO settings VALUES ('company_name', 'My Company')")
@@ -648,11 +656,13 @@ def get_bills():
     date_from = request.args.get('from', '')
     date_to   = request.args.get('to', '')
     client    = request.args.get('client', '')
+    slip      = request.args.get('slip', '')
     q  = "SELECT * FROM bills WHERE 1=1"
     ps = []
     if date_from: q += " AND date(created_at)>=?"; ps.append(date_from)
     if date_to:   q += " AND date(created_at)<=?"; ps.append(date_to)
     if client:    q += " AND client_name LIKE ?";  ps.append(f'%{client}%')
+    if slip:      q += " AND packing_slip_no LIKE ?"; ps.append(f'%{slip}%')
     q += " ORDER BY created_at DESC"
     conn = get_db()
     rows = conn.execute(q, ps).fetchall()
@@ -681,10 +691,11 @@ def create_bill():
     bill_no  = f"BILL-{int(counter):04d}"
     conn.execute("UPDATE settings SET value=? WHERE key='bill_counter'", (int(counter)+1,))
 
+    created_by = session.get('username', '')
     cur = conn.execute(
-        "INSERT INTO bills (bill_no,packing_slip_no,client_id,client_name,despatch_date,grand_total) VALUES (?,?,?,?,?,?)",
+        "INSERT INTO bills (bill_no,packing_slip_no,client_id,client_name,despatch_date,grand_total,created_by) VALUES (?,?,?,?,?,?,?)",
         (bill_no, data.get('packing_slip_no',''), data.get('client_id'),
-         data['client_name'], data.get('despatch_date',''), data.get('grand_total', 0))
+         data['client_name'], data.get('despatch_date',''), data.get('grand_total', 0), created_by)
     )
     bid = cur.lastrowid
 
@@ -708,6 +719,54 @@ def delete_bill(bid):
     conn.commit()
     conn.close()
     return jsonify({'success': True})
+
+@app.route('/api/bills/next_no')
+@login_required
+def next_bill_no():
+    conn    = get_db()
+    counter = conn.execute("SELECT value FROM settings WHERE key='bill_counter'").fetchone()['value']
+    conn.close()
+    return jsonify({'bill_no': f"BILL-{int(counter):04d}"})
+
+@app.route('/api/backup')
+@admin_required
+def backup_db():
+    date_str  = datetime.date.today().strftime('%Y-%m-%d')
+    filename  = f'mattress_backup_{date_str}.db'
+    with open(DB_PATH, 'rb') as f:
+        data = f.read()
+    return Response(
+        data,
+        mimetype='application/octet-stream',
+        headers={'Content-Disposition': f'attachment; filename={filename}'}
+    )
+
+@app.route('/print/bills')
+@login_required
+def print_bills():
+    ids_str = request.args.get('ids', '')
+    if not ids_str:
+        return 'No bill IDs provided', 400
+    try:
+        ids = [int(i.strip()) for i in ids_str.split(',') if i.strip()]
+    except ValueError:
+        return 'Invalid bill IDs', 400
+
+    conn = get_db()
+    # Load company name
+    company_row = conn.execute("SELECT value FROM settings WHERE key='company_name'").fetchone()
+    company_name = company_row['value'] if company_row else 'My Company'
+
+    bills_data = []
+    for bid in ids:
+        bill  = conn.execute("SELECT * FROM bills WHERE id=?", (bid,)).fetchone()
+        if not bill:
+            continue
+        items = conn.execute("SELECT * FROM bill_items WHERE bill_id=? ORDER BY sno", (bid,)).fetchall()
+        bills_data.append({'bill': dict(bill), 'items': [dict(i) for i in items]})
+    conn.close()
+
+    return render_template('print_bills.html', bills=bills_data, company_name=company_name)
 
 # ───────────────────────────── Settings routes ─────────────────────────────
 
