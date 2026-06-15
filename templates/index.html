@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mattress Price App</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+<style>
+  body { background: #f4f6f9; font-size: 0.9rem; }
+  .navbar-brand { font-weight: 700; letter-spacing: 0.5px; }
+  .nav-link.active { font-weight: 600; }
+  .view { display: none; }
+  .view.active { display: block; }
+  .card { border: none; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  .table th { background: #f8f9fa; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.4px; color: #6c757d; }
+  .table td { vertical-align: middle; }
+  .bill-row select, .bill-row input { font-size: 0.85rem; padding: 4px 6px; }
+  .price-badge { background: #e8f5e9; color: #2e7d32; border-radius: 4px; padding: 2px 8px; font-weight: 600; }
+  .total-badge { background: #e3f2fd; color: #1565c0; border-radius: 4px; padding: 2px 8px; font-weight: 600; }
+  .grand-total-row td { font-size: 1rem; font-weight: 700; }
+  .btn-add-row { border-style: dashed; }
+  .editable-price { cursor: pointer; border-bottom: 1px dashed #999; }
+  .filter-bar { background: #fff; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  .status-badge { font-size: 0.75rem; }
+
+  /* ── Print styles ── */
+  @media print {
+    body { background: #fff; font-size: 11pt; }
+    .no-print { display: none !important; }
+    .print-only { display: block !important; }
+    .print-area { display: block !important; }
+    nav, .view:not(#view-print) { display: none !important; }
+    #view-print { display: block !important; }
+    #print-bill { box-shadow: none; border: none; }
+    .table th { background: #eee !important; }
+  }
+  .print-only { display: none; }
+  #view-print { display: none; }
+  #view-print.active { display: block; }
+
+  /* Print bill layout */
+  #print-bill { max-width: 800px; margin: 0 auto; background: #fff; padding: 32px; }
+  .print-header { border-bottom: 2px solid #333; padding-bottom: 12px; margin-bottom: 16px; }
+  .print-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+  .print-meta-item { font-size: 0.88rem; }
+  .print-meta-item span:first-child { color: #666; display: block; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.5px; }
+  .print-footer { margin-top: 32px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .sign-box { border-top: 1px solid #333; padding-top: 6px; font-size: 0.8rem; color: #555; text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════ LOGIN MODAL ══════════════════════ -->
+<div class="modal fade" id="loginModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title w-100 text-center mt-2">
+          <i class="bi bi-box-seam text-primary"></i><br>
+          <span style="font-size:1.1rem;font-weight:700;">Mattress Price App</span>
+        </h5>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Login as</label>
+          <div class="d-flex gap-2">
+            <button class="btn btn-outline-primary flex-fill" onclick="selectRole('user')" id="btn-role-user">
+              <i class="bi bi-person"></i> User
+            </button>
+            <button class="btn btn-outline-danger flex-fill" onclick="selectRole('admin')" id="btn-role-admin">
+              <i class="bi bi-shield-lock"></i> Admin
+            </button>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Password</label>
+          <input type="password" id="login-pw" class="form-control" placeholder="Enter password"
+                 onkeydown="if(event.key==='Enter') doLogin()">
+          <div id="login-error" class="text-danger mt-1" style="display:none;font-size:0.83rem;"></div>
+        </div>
+        <button class="btn btn-primary w-100" onclick="doLogin()">
+          <i class="bi bi-box-arrow-in-right"></i> Sign In
+        </button>
+        <div class="text-muted text-center mt-3" style="font-size:0.78rem;">
+          Default passwords — User: <code>user123</code> &nbsp;|&nbsp; Admin: <code>admin123</code>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════ NAVBAR ══════════════════════ -->
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary no-print" id="main-nav" style="display:none!important;">
+  <div class="container-fluid">
+    <span class="navbar-brand"><i class="bi bi-box-seam"></i> <span id="nav-company">Mattress App</span></span>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navMenu">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item"><a class="nav-link" href="#" onclick="showView('new-bill')"><i class="bi bi-plus-circle"></i> New Bill</a></li>
+        <li class="nav-item"><a class="nav-link" href="#" onclick="showView('records')"><i class="bi bi-clock-history"></i> Records</a></li>
+        <li class="nav-item"><a class="nav-link" href="#" onclick="showView('clients')"><i class="bi bi-people"></i> Clients</a></li>
+        <li class="nav-item admin-only" style="display:none">
+          <a class="nav-link" href="#" onclick="showView('admin')"><i class="bi bi-gear"></i> Admin</a>
+        </li>
+      </ul>
+      <div class="d-flex align-items-center gap-2">
+        <span class="badge bg-light text-dark" id="nav-role-badge"></span>
+        <button class="btn btn-sm btn-outline-light" onclick="doLogout()"><i class="bi bi-box-arrow-right"></i> Logout</button>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- ══════════════════════ VIEWS ══════════════════════ -->
+<div class="container-fluid py-3 no-print" id="app-container" style="display:none;">
+
+  <!-- ── NEW BILL ── -->
+  <div id="view-new-bill" class="view">
+    <div class="row mb-3">
+      <div class="col">
+        <h5 class="mb-0"><i class="bi bi-plus-circle text-primary"></i> New Bill</h5>
+        <small class="text-muted">Create a new dispatch entry</small>
+      </div>
+    </div>
+
+    <!-- Bill Header -->
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">Client Name <span class="text-danger">*</span></label>
+            <div class="input-group">
+              <input type="text" id="bill-client-input" class="form-control" placeholder="Type to search or add..."
+                     oninput="searchClients(this.value)" autocomplete="off">
+              <button class="btn btn-outline-secondary" onclick="openClientModal(null)" title="Add new client">
+                <i class="bi bi-person-plus"></i>
+              </button>
+            </div>
+            <div id="client-suggestions" class="list-group" style="position:absolute;z-index:999;max-width:360px;"></div>
+            <input type="hidden" id="bill-client-id">
+            <input type="hidden" id="bill-client-discount-type" value="amount">
+            <input type="hidden" id="bill-client-discount-value" value="0">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold">Packing Slip No.</label>
+            <input type="text" id="bill-slip-no" class="form-control" placeholder="e.g. PS-001">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold">Despatch Date</label>
+            <input type="date" id="bill-despatch-date" class="form-control">
+          </div>
+          <div class="col-md-2 d-flex align-items-end">
+            <button class="btn btn-outline-secondary w-100" onclick="clearBill()" title="Start fresh">
+              <i class="bi bi-arrow-counterclockwise"></i> Clear
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bill Items Table -->
+    <div class="card mb-3">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-bordered mb-0" id="bill-table">
+            <thead>
+              <tr>
+                <th style="width:40px;">#</th>
+                <th style="width:120px;">Brand</th>
+                <th style="width:150px;">Product</th>
+                <th style="width:160px;">Size</th>
+                <th style="width:100px;">Thickness</th>
+                <th style="width:70px;">Qty</th>
+                <th style="width:120px;">Unit Price (₹)</th>
+                <th style="width:160px;">Discount</th>
+                <th style="width:120px;">Total (₹)</th>
+                <th style="width:40px;"></th>
+              </tr>
+            </thead>
+            <tbody id="bill-items-body">
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="10" class="p-2">
+                  <button class="btn btn-outline-primary btn-sm btn-add-row" onclick="addBillRow()">
+                    <i class="bi bi-plus-circle"></i> Add Row
+                  </button>
+                </td>
+              </tr>
+              <tr class="grand-total-row" style="background:#f8f9fa;">
+                <td colspan="7" class="text-end pe-3">Grand Total:</td>
+                <td id="bill-total-discount" class="text-center text-muted" style="font-size:0.85rem;"></td>
+                <td id="bill-grand-total" class="text-end pe-2 text-primary fw-bold"></td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Action buttons -->
+    <div class="d-flex gap-2 justify-content-end">
+      <button class="btn btn-outline-secondary" onclick="previewBill()">
+        <i class="bi bi-eye"></i> Preview & Print
+      </button>
+      <button class="btn btn-success" onclick="saveBill()">
+        <i class="bi bi-save"></i> Save Bill
+      </button>
+    </div>
+  </div>
+
+  <!-- ── RECORDS ── -->
+  <div id="view-records" class="view">
+    <div class="row mb-3">
+      <div class="col">
+        <h5 class="mb-0"><i class="bi bi-clock-history text-primary"></i> Records</h5>
+        <small class="text-muted">All saved bills</small>
+      </div>
+    </div>
+    <div class="filter-bar">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label mb-1 small fw-semibold">Client</label>
+          <input type="text" id="rec-client-filter" class="form-control form-control-sm" placeholder="Search by client...">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label mb-1 small fw-semibold">From</label>
+          <input type="date" id="rec-from" class="form-control form-control-sm">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label mb-1 small fw-semibold">To</label>
+          <input type="date" id="rec-to" class="form-control form-control-sm">
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-primary btn-sm" onclick="loadRecords()"><i class="bi bi-search"></i> Search</button>
+          <button class="btn btn-outline-secondary btn-sm ms-1" onclick="clearRecordFilters()">Clear</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr>
+                <th>Bill No.</th>
+                <th>Client</th>
+                <th>Packing Slip</th>
+                <th>Despatch Date</th>
+                <th>Grand Total</th>
+                <th>Created On</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="records-body">
+              <tr><td colspan="7" class="text-center text-muted py-4">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CLIENTS ── -->
+  <div id="view-clients" class="view">
+    <div class="row mb-3">
+      <div class="col">
+        <h5 class="mb-0"><i class="bi bi-people text-primary"></i> Clients</h5>
+        <small class="text-muted">Manage client directory</small>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-primary btn-sm" onclick="openClientModal(null)">
+          <i class="bi bi-person-plus"></i> Add Client
+        </button>
+      </div>
+    </div>
+    <div class="filter-bar">
+      <input type="text" id="client-search" class="form-control form-control-sm" placeholder="Search clients..."
+             oninput="loadClients(this.value)" style="max-width:300px;">
+    </div>
+    <div class="card">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Address</th>
+                <th>Default Discount</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="clients-body">
+              <tr><td colspan="5" class="text-center text-muted py-4">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── ADMIN ── -->
+  <div id="view-admin" class="view">
+    <div class="row mb-3">
+      <div class="col">
+        <h5 class="mb-0"><i class="bi bi-gear text-primary"></i> Admin Panel</h5>
+        <small class="text-muted">Manage price lists and settings</small>
+      </div>
+    </div>
+
+    <ul class="nav nav-tabs mb-3" id="admin-tabs">
+      <li class="nav-item"><a class="nav-link active" href="#" onclick="showAdminTab('pricelist',this)">Price List</a></li>
+      <li class="nav-item"><a class="nav-link" href="#" onclick="showAdminTab('settings',this)">Settings</a></li>
+    </ul>
+
+    <!-- Price List Tab -->
+    <div id="admin-tab-pricelist">
+      <div class="filter-bar">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-2">
+            <label class="form-label mb-1 small fw-semibold">Brand</label>
+            <select id="pl-filter-brand" class="form-select form-select-sm" onchange="loadPriceList()">
+              <option value="">All Brands</option>
+              <option>Napcat</option>
+              <option>Orthonap</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label mb-1 small fw-semibold">Product</label>
+            <input type="text" id="pl-filter-product" class="form-control form-control-sm" placeholder="Filter by product..."
+                   oninput="loadPriceList()">
+          </div>
+          <div class="col-md-3">
+            <button class="btn btn-outline-primary btn-sm" onclick="openAddPriceModal()">
+              <i class="bi bi-plus-circle"></i> Add Entry
+            </button>
+            <button class="btn btn-outline-secondary btn-sm ms-1" onclick="clearPLFilters()">Clear</button>
+          </div>
+          <div class="col text-end">
+            <small class="text-muted" id="pl-count"></small>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-body p-0">
+          <div class="table-responsive" style="max-height:65vh;overflow-y:auto;">
+            <table class="table table-hover mb-0" id="pl-table">
+              <thead style="position:sticky;top:0;z-index:1;">
+                <tr>
+                  <th>Brand</th>
+                  <th>Product</th>
+                  <th>Size Code</th>
+                  <th>Size (Metric)</th>
+                  <th>Thickness</th>
+                  <th>Price (₹)</th>
+                  <th>Updated</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="pl-body">
+                <tr><td colspan="8" class="text-center text-muted py-4">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Tab -->
+    <div id="admin-tab-settings" style="display:none;">
+      <div class="row g-3">
+        <div class="col-md-5">
+          <div class="card">
+            <div class="card-header fw-semibold"><i class="bi bi-building"></i> Company Name</div>
+            <div class="card-body">
+              <input type="text" id="setting-company" class="form-control mb-2" placeholder="Company name">
+              <button class="btn btn-primary btn-sm" onclick="saveCompanyName()">Save</button>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-5">
+          <div class="card">
+            <div class="card-header fw-semibold"><i class="bi bi-key"></i> Change Passwords</div>
+            <div class="card-body">
+              <div class="mb-3">
+                <label class="form-label small fw-semibold">User Password</label>
+                <input type="password" id="setting-user-pw" class="form-control form-control-sm" placeholder="New user password">
+                <button class="btn btn-outline-primary btn-sm mt-1" onclick="changePassword('user')">Update User Password</button>
+              </div>
+              <hr>
+              <div>
+                <label class="form-label small fw-semibold">Admin Password</label>
+                <input type="password" id="setting-admin-pw" class="form-control form-control-sm" placeholder="New admin password">
+                <button class="btn btn-outline-danger btn-sm mt-1" onclick="changePassword('admin')">Update Admin Password</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /app-container -->
+
+<!-- ══════════════════════ PRINT VIEW ══════════════════════ -->
+<div id="view-print" class="p-3">
+  <div class="no-print mb-3">
+    <button class="btn btn-outline-secondary btn-sm" onclick="closePrintView()">
+      <i class="bi bi-arrow-left"></i> Back
+    </button>
+    <button class="btn btn-primary btn-sm ms-2" onclick="window.print()">
+      <i class="bi bi-printer"></i> Print
+    </button>
+  </div>
+  <div id="print-bill">
+    <div class="print-header d-flex justify-content-between align-items-start">
+      <div>
+        <h4 id="pb-company" style="margin:0;font-weight:700;"></h4>
+        <div style="font-size:0.85rem;color:#555;">Dispatch Reference Sheet</div>
+      </div>
+      <div class="text-end">
+        <div style="font-size:1.1rem;font-weight:700;" id="pb-bill-no"></div>
+        <div style="font-size:0.8rem;color:#555;" id="pb-created"></div>
+      </div>
+    </div>
+    <div class="print-meta">
+      <div class="print-meta-item"><span>Client</span><strong id="pb-client"></strong></div>
+      <div class="print-meta-item"><span>Packing Slip No.</span><strong id="pb-slip"></strong></div>
+      <div class="print-meta-item"><span>Despatch Date</span><strong id="pb-despatch"></strong></div>
+      <div class="print-meta-item"><span>Total Amount</span><strong id="pb-total" style="font-size:1.1rem;color:#1565c0;"></strong></div>
+    </div>
+    <table class="table table-bordered" style="font-size:0.85rem;" id="pb-items-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Brand</th>
+          <th>Product</th>
+          <th>Size</th>
+          <th>Thickness</th>
+          <th>Qty</th>
+          <th>Unit Price (₹)</th>
+          <th>Discount</th>
+          <th>Total (₹)</th>
+        </tr>
+      </thead>
+      <tbody id="pb-items-body"></tbody>
+      <tfoot>
+        <tr style="font-weight:700;background:#f8f9fa;">
+          <td colspan="7" class="text-end">Grand Total:</td>
+          <td></td>
+          <td id="pb-grand-total"></td>
+        </tr>
+      </tfoot>
+    </table>
+    <div class="print-footer">
+      <div class="sign-box">Prepared by</div>
+      <div class="sign-box">Checked by</div>
+      <div class="sign-box">Authorised by</div>
+    </div>
+    <div style="margin-top:16px;font-size:0.75rem;color:#999;text-align:center;">
+      This document is for internal reference only. Not a tax invoice.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════ MODALS ══════════════════════ -->
+
+<!-- Client Modal -->
+<div class="modal fade" id="clientModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="client-modal-title">Add Client</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="cm-id">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Name <span class="text-danger">*</span></label>
+          <input type="text" id="cm-name" class="form-control" placeholder="Client name">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Phone</label>
+          <input type="text" id="cm-phone" class="form-control" placeholder="Phone number">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Address</label>
+          <textarea id="cm-address" class="form-control" rows="2" placeholder="Address"></textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Default Discount</label>
+          <div class="input-group">
+            <select id="cm-discount-type" class="form-select" style="max-width:100px;">
+              <option value="amount">₹ Amount</option>
+              <option value="percent">% Percent</option>
+            </select>
+            <input type="number" id="cm-discount-value" class="form-control" value="0" min="0" step="0.01">
+          </div>
+        </div>
+        <div id="cm-error" class="text-danger" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-danger admin-only" id="cm-delete-btn" style="display:none;" onclick="deleteClient()">Delete</button>
+        <button class="btn btn-primary" onclick="saveClient()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- View Bill Modal -->
+<div class="modal fade" id="viewBillModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="vbm-title">Bill Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="vbm-body">Loading...</div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-danger admin-only" id="vbm-delete-btn" onclick="deleteBillFromModal()" style="display:none;">
+          <i class="bi bi-trash"></i> Delete
+        </button>
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <button class="btn btn-primary" onclick="printFromModal()">
+          <i class="bi bi-printer"></i> Print
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Price Entry Modal -->
+<div class="modal fade" id="addPriceModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add Price Entry</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-6">
+            <label class="form-label fw-semibold">Brand</label>
+            <select id="apm-brand" class="form-select">
+              <option>Napcat</option>
+              <option>Orthonap</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold">Product</label>
+            <input type="text" id="apm-product" class="form-control" placeholder="Product name">
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold">Size Code</label>
+            <input type="text" id="apm-size-code" class="form-control" placeholder="e.g. 78 x 60">
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold">Size Metric</label>
+            <input type="text" id="apm-size-metric" class="form-control" placeholder="e.g. 198 X 152 CM">
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold">Thickness</label>
+            <input type="text" id="apm-thickness" class="form-control" placeholder='e.g. 6"'>
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold">Price (₹)</label>
+            <input type="number" id="apm-price" class="form-control" value="0" min="0">
+          </div>
+        </div>
+        <div id="apm-error" class="text-danger mt-2" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="savePriceEntry()">Add</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:9999;">
+  <div id="toast" class="toast align-items-center" role="alert">
+    <div class="d-flex">
+      <div class="toast-body" id="toast-msg"></div>
+      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════ SCRIPTS ══════════════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ─────────────────────────── State ───────────────────────────
+let STATE = {
+  role: null,
+  companyName: 'Mattress App',
+  products: {},        // {brand: [product names]}
+  clients: [],
+  billRowCount: 0,
+  currentBillId: null, // for modal print
+};
+
+// ─────────────────────────── Init ───────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  const r = await api('GET', '/api/me');
+  if (r.role) {
+    await afterLogin(r.role);
+  } else {
+    new bootstrap.Modal(document.getElementById('loginModal')).show();
+  }
+});
+
+// ─────────────────────────── Auth ───────────────────────────
+let selectedRole = 'user';
+
+function selectRole(role) {
+  selectedRole = role;
+  document.getElementById('btn-role-user').classList.toggle('btn-primary', role === 'user');
+  document.getElementById('btn-role-user').classList.toggle('btn-outline-primary', role !== 'user');
+  document.getElementById('btn-role-admin').classList.toggle('btn-danger', role === 'admin');
+  document.getElementById('btn-role-admin').classList.toggle('btn-outline-danger', role !== 'admin');
+}
+selectRole('user');
+
+async function doLogin() {
+  const pw  = document.getElementById('login-pw').value;
+  const err = document.getElementById('login-error');
+  err.style.display = 'none';
+  const r   = await api('POST', '/api/login', {role: selectedRole, password: pw});
+  if (r.error) {
+    err.textContent = r.error;
+    err.style.display = '';
+  } else {
+    bootstrap.Modal.getInstance(document.getElementById('loginModal')).hide();
+    await afterLogin(r.role);
+  }
+}
+
+async function afterLogin(role) {
+  STATE.role = role;
+  document.getElementById('main-nav').style.removeProperty('display');
+  document.getElementById('app-container').style.display = '';
+  document.getElementById('nav-role-badge').textContent = role === 'admin' ? '🔐 Admin' : '👤 User';
+
+  if (role === 'admin') {
+    document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
+  }
+
+  // Load products catalogue
+  STATE.products = await api('GET', '/api/products');
+
+  // Load company name
+  if (role === 'admin') {
+    const s = await api('GET', '/api/settings');
+    STATE.companyName = s.company_name || 'Mattress App';
+    document.getElementById('setting-company').value = STATE.companyName;
+  }
+  document.getElementById('nav-company').textContent = STATE.companyName;
+  document.querySelectorAll('.pb-company-name').forEach(el => el.textContent = STATE.companyName);
+
+  showView('new-bill');
+  clearBill();
+}
+
+async function doLogout() {
+  await api('POST', '/api/logout');
+  STATE = { role: null, products: {}, clients: [], billRowCount: 0, currentBillId: null };
+  document.getElementById('main-nav').style.display = 'none';
+  document.getElementById('app-container').style.display = 'none';
+  document.getElementById('login-pw').value = '';
+  document.getElementById('login-error').style.display = 'none';
+  document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
+  new bootstrap.Modal(document.getElementById('loginModal')).show();
+}
+
+// ─────────────────────────── Navigation ───────────────────────────
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-print').style.display = 'none';
+  document.getElementById('app-container').style.display = '';
+  document.querySelectorAll('#main-nav .nav-link').forEach(l => l.classList.remove('active'));
+
+  const el = document.getElementById('view-' + name);
+  if (el) el.classList.add('active');
+
+  if (name === 'records')  loadRecords();
+  if (name === 'clients')  loadClients();
+  if (name === 'admin')    { loadPriceList(); loadAdminSettings(); }
+  if (name === 'new-bill') clearBill(false);
+}
+
+// ─────────────────────────── New Bill ───────────────────────────
+function clearBill(full = true) {
+  if (full) {
+    document.getElementById('bill-client-input').value = '';
+    document.getElementById('bill-client-id').value = '';
+    document.getElementById('bill-client-discount-type').value = 'amount';
+    document.getElementById('bill-client-discount-value').value = '0';
+    document.getElementById('bill-slip-no').value = '';
+    document.getElementById('bill-despatch-date').value = '';
+  }
+  document.getElementById('bill-items-body').innerHTML = '';
+  STATE.billRowCount = 0;
+  addBillRow();
+  recalcGrandTotal();
+}
+
+function addBillRow() {
+  STATE.billRowCount++;
+  const idx = STATE.billRowCount;
+  const tbody = document.getElementById('bill-items-body');
+
+  // Build brand options
+  let brandOpts = Object.keys(STATE.products).map(b =>
+    `<option value="${b}">${b}</option>`).join('');
+
+  const tr = document.createElement('tr');
+  tr.id = `row-${idx}`;
+  tr.className = 'bill-row';
+  tr.innerHTML = `
+    <td class="text-center text-muted" style="font-size:0.85rem;">${idx}</td>
+    <td>
+      <select class="form-select form-select-sm" id="r${idx}-brand" onchange="onBrandChange(${idx})">
+        <option value="">-- Brand --</option>
+        ${brandOpts}
+      </select>
+    </td>
+    <td>
+      <select class="form-select form-select-sm" id="r${idx}-product" onchange="onProductChange(${idx})" disabled>
+        <option value="">-- Product --</option>
+      </select>
+    </td>
+    <td>
+      <select class="form-select form-select-sm" id="r${idx}-size" onchange="onSizeChange(${idx})" disabled>
+        <option value="">-- Size --</option>
+      </select>
+    </td>
+    <td>
+      <select class="form-select form-select-sm" id="r${idx}-thickness" onchange="onThicknessChange(${idx})" disabled>
+        <option value="">-- --</option>
+      </select>
+    </td>
+    <td>
+      <input type="number" class="form-control form-control-sm" id="r${idx}-qty"
+             value="1" min="1" style="width:60px;" oninput="calcRow(${idx})">
+    </td>
+    <td>
+      <span class="price-badge" id="r${idx}-price">0.00</span>
+      <input type="hidden" id="r${idx}-price-val" value="0">
+    </td>
+    <td>
+      <div class="input-group input-group-sm">
+        <select class="form-select" id="r${idx}-disc-type" style="max-width:55px;" onchange="calcRow(${idx})">
+          <option value="amount">₹</option>
+          <option value="percent">%</option>
+        </select>
+        <input type="number" class="form-control" id="r${idx}-disc-val" value="0" min="0" step="0.01"
+               oninput="calcRow(${idx})" style="max-width:80px;">
+      </div>
+    </td>
+    <td>
+      <span class="total-badge" id="r${idx}-total">0.00</span>
+    </td>
+    <td>
+      <button class="btn btn-sm btn-outline-danger" onclick="removeRow(${idx})" title="Remove">
+        <i class="bi bi-x"></i>
+      </button>
+    </td>`;
+  tbody.appendChild(tr);
+
+  // Apply client default discount
+  const defType  = document.getElementById('bill-client-discount-type').value;
+  const defVal   = parseFloat(document.getElementById('bill-client-discount-value').value) || 0;
+  document.getElementById(`r${idx}-disc-type`).value = defType;
+  document.getElementById(`r${idx}-disc-val`).value  = defVal;
+}
+
+function removeRow(idx) {
+  const row = document.getElementById(`row-${idx}`);
+  if (row) row.remove();
+  recalcGrandTotal();
+}
+
+async function onBrandChange(idx) {
+  const brand   = document.getElementById(`r${idx}-brand`).value;
+  const prodSel = document.getElementById(`r${idx}-product`);
+  const sizeSel = document.getElementById(`r${idx}-size`);
+  const thkSel  = document.getElementById(`r${idx}-thickness`);
+
+  prodSel.innerHTML = '<option value="">-- Product --</option>';
+  sizeSel.innerHTML = '<option value="">-- Size --</option>';
+  thkSel.innerHTML  = '<option value="">-- --</option>';
+  prodSel.disabled  = !brand;
+  sizeSel.disabled  = true;
+  thkSel.disabled   = true;
+  resetPrice(idx);
+
+  if (!brand) return;
+  const products = STATE.products[brand] || [];
+  products.forEach(p => prodSel.innerHTML += `<option value="${p}">${p}</option>`);
+}
+
+async function onProductChange(idx) {
+  const brand   = document.getElementById(`r${idx}-brand`).value;
+  const product = document.getElementById(`r${idx}-product`).value;
+  const sizeSel = document.getElementById(`r${idx}-size`);
+  const thkSel  = document.getElementById(`r${idx}-thickness`);
+
+  sizeSel.innerHTML = '<option value="">-- Size --</option>';
+  thkSel.innerHTML  = '<option value="">-- --</option>';
+  sizeSel.disabled  = !product;
+  thkSel.disabled   = true;
+  resetPrice(idx);
+
+  if (!product) return;
+  const sizes = await api('GET', `/api/sizes?brand=${enc(brand)}&product=${enc(product)}`);
+  sizes.forEach(s => {
+    sizeSel.innerHTML += `<option value="${s.code}" data-metric="${s.metric}">${s.code} &nbsp;(${s.metric})</option>`;
+  });
+}
+
+async function onSizeChange(idx) {
+  const brand   = document.getElementById(`r${idx}-brand`).value;
+  const product = document.getElementById(`r${idx}-product`).value;
+  const sc      = document.getElementById(`r${idx}-size`).value;
+  const thkSel  = document.getElementById(`r${idx}-thickness`);
+
+  thkSel.innerHTML = '<option value="">-- --</option>';
+  thkSel.disabled  = !sc;
+  resetPrice(idx);
+
+  if (!sc) return;
+  const thks = await api('GET', `/api/thicknesses?brand=${enc(brand)}&product=${enc(product)}&size_code=${enc(sc)}`);
+  thks.forEach(t => {
+    thkSel.innerHTML += `<option value="${t.thickness}" data-price="${t.price}">${t.thickness}</option>`;
+  });
+}
+
+async function onThicknessChange(idx) {
+  const brand   = document.getElementById(`r${idx}-brand`).value;
+  const product = document.getElementById(`r${idx}-product`).value;
+  const sc      = document.getElementById(`r${idx}-size`).value;
+  const thk     = document.getElementById(`r${idx}-thickness`).value;
+
+  if (!thk) { resetPrice(idx); return; }
+
+  const r = await api('GET', `/api/price?brand=${enc(brand)}&product=${enc(product)}&size_code=${enc(sc)}&thickness=${enc(thk)}`);
+  document.getElementById(`r${idx}-price-val`).value = r.price || 0;
+  document.getElementById(`r${idx}-price`).textContent = fmt(r.price || 0);
+  calcRow(idx);
+}
+
+function resetPrice(idx) {
+  document.getElementById(`r${idx}-price-val`).value   = '0';
+  document.getElementById(`r${idx}-price`).textContent = '0.00';
+  document.getElementById(`r${idx}-total`).textContent = '0.00';
+  recalcGrandTotal();
+}
+
+function calcRow(idx) {
+  const price     = parseFloat(document.getElementById(`r${idx}-price-val`).value) || 0;
+  const qty       = parseInt(document.getElementById(`r${idx}-qty`).value) || 0;
+  const discType  = document.getElementById(`r${idx}-disc-type`).value;
+  const discVal   = parseFloat(document.getElementById(`r${idx}-disc-val`).value) || 0;
+  const subtotal  = price * qty;
+  const discAmt   = discType === 'percent' ? subtotal * discVal / 100 : discVal;
+  const total     = Math.max(0, subtotal - discAmt);
+  document.getElementById(`r${idx}-total`).textContent = fmt(total);
+  recalcGrandTotal();
+}
+
+function recalcGrandTotal() {
+  let grand = 0, totalDisc = 0;
+  document.querySelectorAll('.bill-row').forEach(row => {
+    const idx      = row.id.replace('row-', '');
+    const price    = parseFloat(document.getElementById(`r${idx}-price-val`)?.value) || 0;
+    const qty      = parseInt(document.getElementById(`r${idx}-qty`)?.value) || 0;
+    const discType = document.getElementById(`r${idx}-disc-type`)?.value;
+    const discVal  = parseFloat(document.getElementById(`r${idx}-disc-val`)?.value) || 0;
+    const subtotal = price * qty;
+    const discAmt  = discType === 'percent' ? subtotal * discVal / 100 : discVal;
+    grand     += Math.max(0, subtotal - discAmt);
+    totalDisc += discAmt;
+  });
+  document.getElementById('bill-grand-total').textContent = '₹ ' + fmt(grand);
+  document.getElementById('bill-total-discount').textContent = totalDisc > 0 ? '-₹' + fmt(totalDisc) : '';
+}
+
+// ─────────────────────────── Client Search ───────────────────────────
+let clientSearchTimeout;
+async function searchClients(q) {
+  clearTimeout(clientSearchTimeout);
+  document.getElementById('bill-client-id').value = '';
+  const box = document.getElementById('client-suggestions');
+  if (!q.trim()) { box.innerHTML = ''; return; }
+
+  clientSearchTimeout = setTimeout(async () => {
+    const clients = await api('GET', `/api/clients?q=${enc(q)}`);
+    box.innerHTML = clients.map(c => `
+      <a href="#" class="list-group-item list-group-item-action py-2"
+         onclick="selectClient(${c.id},'${esc(c.name)}','${c.discount_type}',${c.discount_value}); return false;">
+        <strong>${c.name}</strong>
+        ${c.phone ? `<small class="text-muted ms-2">${c.phone}</small>` : ''}
+      </a>`).join('');
+    if (clients.length === 0) {
+      box.innerHTML = `<div class="list-group-item text-muted small">No clients found — <a href="#" onclick="quickAddClient('${esc(q)}');return false;">Add "${q}"</a></div>`;
+    }
+  }, 250);
+}
+
+function selectClient(id, name, discType, discVal) {
+  document.getElementById('bill-client-input').value = name;
+  document.getElementById('bill-client-id').value    = id;
+  document.getElementById('bill-client-discount-type').value  = discType;
+  document.getElementById('bill-client-discount-value').value = discVal;
+  document.getElementById('client-suggestions').innerHTML = '';
+
+  // Apply default discount to all current rows
+  document.querySelectorAll('.bill-row').forEach(row => {
+    const idx = row.id.replace('row-', '');
+    document.getElementById(`r${idx}-disc-type`).value = discType;
+    document.getElementById(`r${idx}-disc-val`).value  = discVal;
+    calcRow(idx);
+  });
+}
+
+function quickAddClient(name) {
+  document.getElementById('client-suggestions').innerHTML = '';
+  openClientModal(null, name);
+}
+
+// ─────────────────────────── Save Bill ───────────────────────────
+async function saveBill() {
+  const clientName = document.getElementById('bill-client-input').value.trim();
+  if (!clientName) { showToast('Please enter a client name', 'danger'); return; }
+
+  const items = [];
+  let   sno   = 1;
+  document.querySelectorAll('.bill-row').forEach(row => {
+    const idx      = row.id.replace('row-', '');
+    const brand    = document.getElementById(`r${idx}-brand`)?.value;
+    const product  = document.getElementById(`r${idx}-product`)?.value;
+    const sizeSel  = document.getElementById(`r${idx}-size`);
+    const sc       = sizeSel?.value;
+    const sm       = sizeSel?.options[sizeSel.selectedIndex]?.dataset.metric || '';
+    const thk      = document.getElementById(`r${idx}-thickness`)?.value;
+    const qty      = parseInt(document.getElementById(`r${idx}-qty`)?.value) || 0;
+    const price    = parseFloat(document.getElementById(`r${idx}-price-val`)?.value) || 0;
+    const discType = document.getElementById(`r${idx}-disc-type`)?.value;
+    const discVal  = parseFloat(document.getElementById(`r${idx}-disc-val`)?.value) || 0;
+    const subtotal = price * qty;
+    const discAmt  = discType === 'percent' ? subtotal * discVal / 100 : discVal;
+    const total    = Math.max(0, subtotal - discAmt);
+
+    if (brand && product && sc && thk && qty > 0) {
+      items.push({ sno: sno++, brand, product, size_code: sc, size_metric: sm,
+                   thickness: thk, quantity: qty, unit_price: price,
+                   discount_type: discType, discount_value: discVal, total_value: total });
+    }
+  });
+
+  if (items.length === 0) { showToast('Add at least one complete item', 'danger'); return; }
+
+  const grandTotal = items.reduce((s, i) => s + i.total_value, 0);
+  const payload    = {
+    client_name: clientName,
+    client_id: document.getElementById('bill-client-id').value || null,
+    packing_slip_no: document.getElementById('bill-slip-no').value,
+    despatch_date:   document.getElementById('bill-despatch-date').value,
+    grand_total: grandTotal,
+    items,
+  };
+
+  const r = await api('POST', '/api/bills', payload);
+  if (r.success) {
+    showToast(`Bill ${r.bill_no} saved successfully!`, 'success');
+    previewSavedBill(r.id);
+  } else {
+    showToast(r.error || 'Save failed', 'danger');
+  }
+}
+
+async function previewSavedBill(id) {
+  const r = await api('GET', `/api/bills/${id}`);
+  if (r.bill) renderPrintView(r.bill, r.items);
+}
+
+async function previewBill() {
+  // Preview without saving — build a temporary bill object from current form
+  const clientName = document.getElementById('bill-client-input').value.trim();
+  const items = [];
+  let sno = 1;
+  document.querySelectorAll('.bill-row').forEach(row => {
+    const idx     = row.id.replace('row-', '');
+    const brand   = document.getElementById(`r${idx}-brand`)?.value;
+    const product = document.getElementById(`r${idx}-product`)?.value;
+    const sizeSel = document.getElementById(`r${idx}-size`);
+    const sc      = sizeSel?.value;
+    const sm      = sizeSel?.options[sizeSel.selectedIndex]?.dataset.metric || '';
+    const thk     = document.getElementById(`r${idx}-thickness`)?.value;
+    const qty     = parseInt(document.getElementById(`r${idx}-qty`)?.value) || 0;
+    const price   = parseFloat(document.getElementById(`r${idx}-price-val`)?.value) || 0;
+    const discType = document.getElementById(`r${idx}-disc-type`)?.value;
+    const discVal  = parseFloat(document.getElementById(`r${idx}-disc-val`)?.value) || 0;
+    const subtotal = price * qty;
+    const discAmt  = discType === 'percent' ? subtotal * discVal / 100 : discVal;
+    const total    = Math.max(0, subtotal - discAmt);
+    if (brand && product && sc && thk && qty > 0) {
+      items.push({ sno: sno++, brand, product, size_code: sc, size_metric: sm,
+                   thickness: thk, quantity: qty, unit_price: price,
+                   discount_type: discType, discount_value: discVal, total_value: total });
+    }
+  });
+  const bill = {
+    bill_no: 'PREVIEW',
+    client_name: clientName || '(no client)',
+    packing_slip_no: document.getElementById('bill-slip-no').value,
+    despatch_date:   document.getElementById('bill-despatch-date').value,
+    grand_total: items.reduce((s,i) => s+i.total_value, 0),
+    created_at: new Date().toLocaleString(),
+  };
+  renderPrintView(bill, items);
+}
+
+// ─────────────────────────── Print View ───────────────────────────
+function renderPrintView(bill, items) {
+  document.getElementById('pb-company').textContent   = STATE.companyName;
+  document.getElementById('pb-bill-no').textContent   = bill.bill_no || '';
+  document.getElementById('pb-created').textContent   = bill.created_at || '';
+  document.getElementById('pb-client').textContent    = bill.client_name || '';
+  document.getElementById('pb-slip').textContent      = bill.packing_slip_no || '—';
+  document.getElementById('pb-despatch').textContent  = bill.despatch_date || '—';
+  document.getElementById('pb-total').textContent     = '₹ ' + fmt(bill.grand_total || 0);
+  document.getElementById('pb-grand-total').textContent = '₹ ' + fmt(bill.grand_total || 0);
+
+  const tbody = document.getElementById('pb-items-body');
+  tbody.innerHTML = items.map(item => {
+    const discStr = item.discount_value > 0
+      ? (item.discount_type === 'percent' ? `${item.discount_value}%` : `₹${fmt(item.discount_value)}`)
+      : '—';
+    return `<tr>
+      <td>${item.sno}</td>
+      <td>${item.brand}</td>
+      <td>${item.product}</td>
+      <td>${item.size_code}<br><small class="text-muted">${item.size_metric}</small></td>
+      <td>${item.thickness}</td>
+      <td class="text-center">${item.quantity}</td>
+      <td class="text-end">₹${fmt(item.unit_price)}</td>
+      <td class="text-center">${discStr}</td>
+      <td class="text-end"><strong>₹${fmt(item.total_value)}</strong></td>
+    </tr>`;
+  }).join('');
+
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('app-container').style.display = 'none';
+  document.getElementById('view-print').style.display = 'block';
+}
+
+function closePrintView() {
+  document.getElementById('view-print').style.display = 'none';
+  document.getElementById('app-container').style.display = '';
+  showView('new-bill');
+}
+
+// ─────────────────────────── Records ───────────────────────────
+async function loadRecords() {
+  const from   = document.getElementById('rec-from').value;
+  const to     = document.getElementById('rec-to').value;
+  const client = document.getElementById('rec-client-filter').value;
+  let   url    = '/api/bills?x=1';
+  if (from)   url += `&from=${from}`;
+  if (to)     url += `&to=${to}`;
+  if (client) url += `&client=${enc(client)}`;
+
+  const bills = await api('GET', url);
+  const tbody = document.getElementById('records-body');
+  if (!bills.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No bills found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = bills.map(b => `
+    <tr>
+      <td><strong>${b.bill_no}</strong></td>
+      <td>${b.client_name}</td>
+      <td>${b.packing_slip_no || '—'}</td>
+      <td>${b.despatch_date || '—'}</td>
+      <td class="text-end"><strong>₹${fmt(b.grand_total)}</strong></td>
+      <td>${b.created_at}</td>
+      <td>
+        <button class="btn btn-sm btn-outline-primary" onclick="viewBill(${b.id})">
+          <i class="bi bi-eye"></i>
+        </button>
+      </td>
+    </tr>`).join('');
+}
+
+function clearRecordFilters() {
+  document.getElementById('rec-from').value = '';
+  document.getElementById('rec-to').value   = '';
+  document.getElementById('rec-client-filter').value = '';
+  loadRecords();
+}
+
+let modalBillId = null;
+async function viewBill(id) {
+  modalBillId = id;
+  document.getElementById('vbm-body').innerHTML = 'Loading...';
+  const modal = new bootstrap.Modal(document.getElementById('viewBillModal'));
+  modal.show();
+
+  const r = await api('GET', `/api/bills/${id}`);
+  const b = r.bill;
+  const items = r.items || [];
+
+  document.getElementById('vbm-title').textContent = `${b.bill_no} — ${b.client_name}`;
+  if (STATE.role === 'admin') {
+    document.getElementById('vbm-delete-btn').style.display = '';
+  }
+
+  const rows = items.map(item => {
+    const discStr = item.discount_value > 0
+      ? (item.discount_type === 'percent' ? `${item.discount_value}%` : `₹${fmt(item.discount_value)}`)
+      : '—';
+    return `<tr>
+      <td>${item.sno}</td><td>${item.brand}</td><td>${item.product}</td>
+      <td>${item.size_code}<br><small class="text-muted">${item.size_metric}</small></td>
+      <td>${item.thickness}</td><td class="text-center">${item.quantity}</td>
+      <td class="text-end">₹${fmt(item.unit_price)}</td>
+      <td class="text-center">${discStr}</td>
+      <td class="text-end"><strong>₹${fmt(item.total_value)}</strong></td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('vbm-body').innerHTML = `
+    <div class="row mb-3">
+      <div class="col-6 col-md-3"><small class="text-muted">Bill No.</small><br><strong>${b.bill_no}</strong></div>
+      <div class="col-6 col-md-3"><small class="text-muted">Packing Slip</small><br><strong>${b.packing_slip_no || '—'}</strong></div>
+      <div class="col-6 col-md-3"><small class="text-muted">Despatch Date</small><br><strong>${b.despatch_date || '—'}</strong></div>
+      <div class="col-6 col-md-3"><small class="text-muted">Created On</small><br><strong>${b.created_at}</strong></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-bordered table-sm">
+        <thead><tr><th>#</th><th>Brand</th><th>Product</th><th>Size</th><th>Thickness</th>
+          <th>Qty</th><th>Unit Price</th><th>Discount</th><th>Total</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr style="font-weight:700;background:#f8f9fa;">
+          <td colspan="7" class="text-end">Grand Total:</td><td></td>
+          <td class="text-end">₹${fmt(b.grand_total)}</td>
+        </tr></tfoot>
+      </table>
+    </div>`;
+}
+
+async function deleteBillFromModal() {
+  if (!confirm('Delete this bill permanently?')) return;
+  const r = await api('DELETE', `/api/bills/${modalBillId}`);
+  if (r.success) {
+    bootstrap.Modal.getInstance(document.getElementById('viewBillModal')).hide();
+    showToast('Bill deleted', 'success');
+    loadRecords();
+  }
+}
+
+function printFromModal() {
+  viewBillThenPrint(modalBillId);
+}
+
+async function viewBillThenPrint(id) {
+  bootstrap.Modal.getInstance(document.getElementById('viewBillModal'))?.hide();
+  const r = await api('GET', `/api/bills/${id}`);
+  if (r.bill) renderPrintView(r.bill, r.items);
+}
+
+// ─────────────────────────── Clients ───────────────────────────
+async function loadClients(q = '') {
+  const clients = await api('GET', `/api/clients?q=${enc(q)}`);
+  const tbody   = document.getElementById('clients-body');
+  if (!clients.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">No clients yet. Add one!</td></tr>';
+    return;
+  }
+  tbody.innerHTML = clients.map(c => {
+    const discStr = c.discount_value > 0
+      ? (c.discount_type === 'percent' ? `${c.discount_value}%` : `₹${fmt(c.discount_value)}`)
+      : 'None';
+    return `<tr>
+      <td><strong>${c.name}</strong></td>
+      <td>${c.phone || '—'}</td>
+      <td>${c.address || '—'}</td>
+      <td>${discStr}</td>
+      <td>
+        <button class="btn btn-sm btn-outline-secondary" onclick="openClientModal(${JSON.stringify(c).replace(/"/g,'&quot;')})">
+          <i class="bi bi-pencil"></i>
+        </button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function openClientModal(client, prefillName = '') {
+  document.getElementById('cm-id').value            = client?.id || '';
+  document.getElementById('cm-name').value          = client?.name || prefillName;
+  document.getElementById('cm-phone').value         = client?.phone || '';
+  document.getElementById('cm-address').value       = client?.address || '';
+  document.getElementById('cm-discount-type').value = client?.discount_type || 'amount';
+  document.getElementById('cm-discount-value').value= client?.discount_value ?? 0;
+  document.getElementById('cm-error').style.display = 'none';
+  document.getElementById('client-modal-title').textContent = client ? 'Edit Client' : 'Add Client';
+
+  const deleteBtn = document.getElementById('cm-delete-btn');
+  deleteBtn.style.display = (client && STATE.role === 'admin') ? '' : 'none';
+
+  new bootstrap.Modal(document.getElementById('clientModal')).show();
+}
+
+async function saveClient() {
+  const id   = document.getElementById('cm-id').value;
+  const name = document.getElementById('cm-name').value.trim();
+  if (!name) {
+    document.getElementById('cm-error').textContent = 'Name is required';
+    document.getElementById('cm-error').style.display = '';
+    return;
+  }
+  const payload = {
+    name,
+    phone:          document.getElementById('cm-phone').value.trim(),
+    address:        document.getElementById('cm-address').value.trim(),
+    discount_type:  document.getElementById('cm-discount-type').value,
+    discount_value: parseFloat(document.getElementById('cm-discount-value').value) || 0,
+  };
+  const r = id
+    ? await api('PUT', `/api/clients/${id}`, payload)
+    : await api('POST', '/api/clients', payload);
+
+  if (r.id) {
+    bootstrap.Modal.getInstance(document.getElementById('clientModal')).hide();
+    showToast('Client saved', 'success');
+    loadClients(document.getElementById('client-search').value);
+    // If we were in new-bill context, auto-select this client
+    if (document.getElementById('view-new-bill').classList.contains('active')) {
+      selectClient(r.id, r.name, r.discount_type, r.discount_value);
+    }
+  } else {
+    document.getElementById('cm-error').textContent = r.error || 'Save failed';
+    document.getElementById('cm-error').style.display = '';
+  }
+}
+
+async function deleteClient() {
+  const id = document.getElementById('cm-id').value;
+  if (!id || !confirm('Delete this client?')) return;
+  const r = await api('DELETE', `/api/clients/${id}`);
+  if (r.success) {
+    bootstrap.Modal.getInstance(document.getElementById('clientModal')).hide();
+    showToast('Client deleted', 'success');
+    loadClients();
+  }
+}
+
+// ─────────────────────────── Admin: Price List ───────────────────────────
+async function loadPriceList() {
+  const brand   = document.getElementById('pl-filter-brand').value;
+  const product = document.getElementById('pl-filter-product').value;
+  let   url     = '/api/pricelist?x=1';
+  if (brand)   url += `&brand=${enc(brand)}`;
+  if (product) url += `&product=${enc(product)}`;
+
+  const rows  = await api('GET', url);
+  const tbody = document.getElementById('pl-body');
+  document.getElementById('pl-count').textContent = `${rows.length} entries`;
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No entries.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `
+    <tr id="pl-row-${r.id}">
+      <td>${r.brand}</td>
+      <td>${r.product}</td>
+      <td>${r.size_code}</td>
+      <td>${r.size_metric}</td>
+      <td>${r.thickness}</td>
+      <td>
+        <span class="editable-price" id="pl-price-${r.id}" onclick="editPriceInline(${r.id}, ${r.price})"
+              title="Click to edit">₹${fmt(r.price)}</span>
+        <input type="number" id="pl-price-input-${r.id}" value="${r.price}" min="0" step="1"
+               class="form-control form-control-sm d-none" style="max-width:100px;display:none!important"
+               onblur="savePriceInline(${r.id})" onkeydown="if(event.key==='Enter')savePriceInline(${r.id});if(event.key==='Escape')cancelPriceInline(${r.id})">
+      </td>
+      <td><small class="text-muted">${r.updated_at}</small></td>
+      <td>
+        <button class="btn btn-sm btn-outline-danger" onclick="deletePriceEntry(${r.id})" title="Delete">
+          <i class="bi bi-trash"></i>
+        </button>
+      </td>
+    </tr>`).join('');
+}
+
+function editPriceInline(id, current) {
+  document.getElementById(`pl-price-${id}`).style.display = 'none';
+  const inp = document.getElementById(`pl-price-input-${id}`);
+  inp.style.removeProperty('display');
+  inp.classList.remove('d-none');
+  inp.value = current;
+  inp.focus();
+  inp.select();
+}
+
+async function savePriceInline(id) {
+  const inp  = document.getElementById(`pl-price-input-${id}`);
+  const price = parseFloat(inp.value) || 0;
+  inp.style.display = 'none';
+  document.getElementById(`pl-price-${id}`).style.display = '';
+  const r = await api('PUT', `/api/pricelist/${id}`, {price});
+  if (r.success) {
+    document.getElementById(`pl-price-${id}`).textContent = '₹' + fmt(price);
+    showToast('Price updated', 'success');
+  }
+}
+
+function cancelPriceInline(id) {
+  document.getElementById(`pl-price-input-${id}`).style.display = 'none';
+  document.getElementById(`pl-price-${id}`).style.display = '';
+}
+
+async function deletePriceEntry(id) {
+  if (!confirm('Delete this price entry?')) return;
+  const r = await api('DELETE', `/api/pricelist/${id}`);
+  if (r.success) {
+    document.getElementById(`pl-row-${id}`)?.remove();
+    showToast('Entry deleted', 'success');
+  }
+}
+
+function clearPLFilters() {
+  document.getElementById('pl-filter-brand').value   = '';
+  document.getElementById('pl-filter-product').value = '';
+  loadPriceList();
+}
+
+function openAddPriceModal() {
+  document.getElementById('apm-error').style.display = 'none';
+  new bootstrap.Modal(document.getElementById('addPriceModal')).show();
+}
+
+async function savePriceEntry() {
+  const data = {
+    brand:       document.getElementById('apm-brand').value,
+    product:     document.getElementById('apm-product').value.trim(),
+    size_code:   document.getElementById('apm-size-code').value.trim(),
+    size_metric: document.getElementById('apm-size-metric').value.trim(),
+    thickness:   document.getElementById('apm-thickness').value.trim(),
+    price:       parseFloat(document.getElementById('apm-price').value) || 0,
+  };
+  if (!data.product || !data.size_code || !data.thickness) {
+    document.getElementById('apm-error').textContent = 'Product, size code and thickness are required';
+    document.getElementById('apm-error').style.display = '';
+    return;
+  }
+  const r = await api('POST', '/api/pricelist', data);
+  if (r.id) {
+    bootstrap.Modal.getInstance(document.getElementById('addPriceModal')).hide();
+    showToast('Entry added', 'success');
+    loadPriceList();
+    STATE.products = await api('GET', '/api/products');
+  } else {
+    document.getElementById('apm-error').textContent = r.error || 'Failed';
+    document.getElementById('apm-error').style.display = '';
+  }
+}
+
+// ─────────────────────────── Admin: Settings ───────────────────────────
+async function loadAdminSettings() {
+  const s = await api('GET', '/api/settings');
+  document.getElementById('setting-company').value = s.company_name || '';
+}
+
+async function saveCompanyName() {
+  const name = document.getElementById('setting-company').value.trim();
+  const r    = await api('PUT', '/api/settings/company', {name});
+  if (r.success) {
+    STATE.companyName = name;
+    document.getElementById('nav-company').textContent = name;
+    showToast('Company name saved', 'success');
+  }
+}
+
+async function changePassword(type) {
+  const inp = document.getElementById(`setting-${type}-pw`);
+  const pw  = inp.value;
+  const r   = await api('PUT', '/api/settings/password', {type, new_password: pw});
+  if (r.success) {
+    inp.value = '';
+    showToast(`${type === 'admin' ? 'Admin' : 'User'} password updated`, 'success');
+  } else {
+    showToast(r.error || 'Failed', 'danger');
+  }
+}
+
+function showAdminTab(tab, el) {
+  document.querySelectorAll('#admin-tabs .nav-link').forEach(l => l.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('admin-tab-pricelist').style.display = tab === 'pricelist' ? '' : 'none';
+  document.getElementById('admin-tab-settings').style.display  = tab === 'settings'  ? '' : 'none';
+  return false;
+}
+
+// ─────────────────────────── Utilities ───────────────────────────
+async function api(method, url, body) {
+  const opts = { method, headers: {'Content-Type': 'application/json'}, credentials: 'same-origin' };
+  if (body) opts.body = JSON.stringify(body);
+  try {
+    const res  = await fetch(url, opts);
+    return await res.json();
+  } catch(e) {
+    showToast('Network error', 'danger');
+    return {error: 'Network error'};
+  }
+}
+
+function fmt(n) {
+  return Number(n).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+
+function enc(s) { return encodeURIComponent(s || ''); }
+function esc(s) { return (s||'').replace(/'/g, "\\'").replace(/"/g, '\\"'); }
+
+function showToast(msg, type = 'success') {
+  const t = document.getElementById('toast');
+  const m = document.getElementById('toast-msg');
+  t.className = `toast align-items-center text-bg-${type} border-0`;
+  m.textContent = msg;
+  new bootstrap.Toast(t, {delay: 3000}).show();
+}
+
+// Close suggestions when clicking elsewhere
+document.addEventListener('click', e => {
+  if (!e.target.closest('#bill-client-input') && !e.target.closest('#client-suggestions')) {
+    document.getElementById('client-suggestions').innerHTML = '';
+  }
+});
+</script>
+</body>
+</html>
