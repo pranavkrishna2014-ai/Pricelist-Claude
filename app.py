@@ -45,12 +45,18 @@ def init_db():
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY, value TEXT
         );
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'user',
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        );
         CREATE TABLE IF NOT EXISTS clients (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             phone TEXT DEFAULT '',
             address TEXT DEFAULT '',
-            discount_type TEXT DEFAULT 'amount',
             discount_value REAL DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now','localtime'))
         );
@@ -93,10 +99,14 @@ def init_db():
         );
     ''')
 
-    c.execute("INSERT OR IGNORE INTO settings VALUES ('admin_pw', ?)", (hash_pw('admin123'),))
-    c.execute("INSERT OR IGNORE INTO settings VALUES ('user_pw',  ?)", (hash_pw('user123'),))
     c.execute("INSERT OR IGNORE INTO settings VALUES ('bill_counter', '1')")
     c.execute("INSERT OR IGNORE INTO settings VALUES ('company_name', 'My Company')")
+    # Seed default users if none exist
+    if c.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
+        c.execute("INSERT INTO users (username,password_hash,role) VALUES (?,?,?)",
+                  ('admin', hash_pw('admin123'), 'admin'))
+        c.execute("INSERT INTO users (username,password_hash,role) VALUES (?,?,?)",
+                  ('user', hash_pw('user123'), 'user'))
     conn.commit()
 
     if c.execute("SELECT COUNT(*) FROM price_list").fetchone()[0] == 0:
@@ -244,16 +254,18 @@ def _seed_prices(c):
 @app.route('/api/login', methods=['POST'])
 def login():
     data = request.json or {}
-    role = data.get('role')
-    pw   = data.get('password', '')
-    key  = 'admin_pw' if role == 'admin' else 'user_pw'
-    conn = get_db()
-    stored = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    username = (data.get('username') or '').strip()
+    pw       = data.get('password', '')
+    conn     = get_db()
+    row      = conn.execute(
+        "SELECT role, password_hash FROM users WHERE username=?", (username,)
+    ).fetchone()
     conn.close()
-    if stored and hash_pw(pw) == stored['value']:
-        session['role'] = role
-        return jsonify({'success': True, 'role': role})
-    return jsonify({'error': 'Incorrect password'}), 401
+    if row and hash_pw(pw) == row['password_hash']:
+        session['role']     = row['role']
+        session['username'] = username
+        return jsonify({'success': True, 'role': row['role'], 'username': username})
+    return jsonify({'error': 'Incorrect username or password'}), 401
 
 @app.route('/api/logout', methods=['POST'])
 def logout():
@@ -262,7 +274,81 @@ def logout():
 
 @app.route('/api/me')
 def me():
-    return jsonify({'role': session.get('role')})
+    return jsonify({'role': session.get('role'), 'username': session.get('username')})
+
+# ───────────────────────────── User management routes ─────────────────────────────
+
+@app.route('/api/users')
+@admin_required
+def list_users():
+    conn = get_db()
+    rows = conn.execute("SELECT id, username, role, created_at FROM users ORDER BY role DESC, username").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/users', methods=['POST'])
+@admin_required
+def create_user():
+    data     = request.json or {}
+    username = (data.get('username') or '').strip()
+    pw       = data.get('password', '')
+    role     = data.get('role', 'user')
+    if not username:
+        return jsonify({'error': 'Username is required'}), 400
+    if len(pw) < 4:
+        return jsonify({'error': 'Password must be at least 4 characters'}), 400
+    if role not in ('admin', 'user'):
+        return jsonify({'error': 'Role must be admin or user'}), 400
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (?,?,?)",
+            (username, hash_pw(pw), role)
+        )
+        uid = cur.lastrowid
+        conn.commit()
+        row = conn.execute("SELECT id, username, role, created_at FROM users WHERE id=?", (uid,)).fetchone()
+        conn.close()
+        return jsonify(dict(row))
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': f'Username already exists'}), 400
+
+@app.route('/api/users/<int:uid>/password', methods=['PUT'])
+@admin_required
+def change_user_password(uid):
+    data = request.json or {}
+    pw   = data.get('password', '')
+    if len(pw) < 4:
+        return jsonify({'error': 'Password must be at least 4 characters'}), 400
+    conn = get_db()
+    conn.execute("UPDATE users SET password_hash=? WHERE id=?", (hash_pw(pw), uid))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+@app.route('/api/users/<int:uid>', methods=['DELETE'])
+@admin_required
+def delete_user(uid):
+    # Prevent deleting yourself
+    conn = get_db()
+    row  = conn.execute("SELECT username FROM users WHERE id=?", (uid,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'User not found'}), 404
+    if row['username'] == session.get('username'):
+        conn.close()
+        return jsonify({'error': 'You cannot delete your own account'}), 400
+    # Ensure at least one admin remains
+    admins = conn.execute("SELECT COUNT(*) FROM users WHERE role='admin'").fetchone()[0]
+    is_admin = conn.execute("SELECT role FROM users WHERE id=?", (uid,)).fetchone()['role'] == 'admin'
+    if is_admin and admins <= 1:
+        conn.close()
+        return jsonify({'error': 'Cannot delete the last admin account'}), 400
+    conn.execute("DELETE FROM users WHERE id=?", (uid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
 
 # ───────────────────────────── Price list routes ─────────────────────────────
 
@@ -522,9 +608,8 @@ def add_client():
     data = request.json or {}
     conn = get_db()
     cur  = conn.execute(
-        "INSERT INTO clients (name,phone,address,discount_type,discount_value) VALUES (?,?,?,?,?)",
-        (data['name'], data.get('phone',''), data.get('address',''),
-         data.get('discount_type','amount'), data.get('discount_value', 0))
+        "INSERT INTO clients (name,phone,address,discount_value) VALUES (?,?,?,?)",
+        (data['name'], data.get('phone',''), data.get('address',''), data.get('discount_value', 0))
     )
     cid  = cur.lastrowid
     conn.commit()
@@ -538,9 +623,8 @@ def update_client(cid):
     data = request.json or {}
     conn = get_db()
     conn.execute(
-        "UPDATE clients SET name=?,phone=?,address=?,discount_type=?,discount_value=? WHERE id=?",
-        (data['name'], data.get('phone',''), data.get('address',''),
-         data.get('discount_type','amount'), data.get('discount_value', 0), cid)
+        "UPDATE clients SET name=?,phone=?,address=?,discount_value=? WHERE id=?",
+        (data['name'], data.get('phone',''), data.get('address',''), data.get('discount_value', 0), cid)
     )
     conn.commit()
     row = conn.execute("SELECT * FROM clients WHERE id=?", (cid,)).fetchone()
@@ -634,21 +718,6 @@ def get_settings():
     rows = conn.execute("SELECT key,value FROM settings WHERE key NOT IN ('admin_pw','user_pw')").fetchall()
     conn.close()
     return jsonify({r['key']: r['value'] for r in rows})
-
-@app.route('/api/settings/password', methods=['PUT'])
-@admin_required
-def change_password():
-    data = request.json or {}
-    pw_type = data.get('type', 'user')  # 'admin' or 'user'
-    new_pw  = data.get('new_password', '')
-    if len(new_pw) < 4:
-        return jsonify({'error': 'Password must be at least 4 characters'}), 400
-    key = 'admin_pw' if pw_type == 'admin' else 'user_pw'
-    conn = get_db()
-    conn.execute("UPDATE settings SET value=? WHERE key=?", (hash_pw(new_pw), key))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True})
 
 @app.route('/api/settings/company', methods=['PUT'])
 @admin_required

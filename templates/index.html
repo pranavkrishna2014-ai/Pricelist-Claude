@@ -63,13 +63,23 @@
   #view-print.active { display: block; }
 
   /* Print bill layout */
-  #print-bill { max-width: 800px; margin: 0 auto; background: #fff; padding: 32px; }
-  .print-header { border-bottom: 2px solid #333; padding-bottom: 12px; margin-bottom: 16px; }
-  .print-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
-  .print-meta-item { font-size: 0.88rem; }
-  .print-meta-item span:first-child { color: #666; display: block; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.5px; }
-  .print-footer { margin-top: 32px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
-  .sign-box { border-top: 1px solid #333; padding-top: 6px; font-size: 0.8rem; color: #555; text-align: center; }
+  #print-bill { max-width: 780px; margin: 0 auto; background: #fff; padding: 18px 20px; }
+  .print-header { border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 10px; }
+  .print-meta { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+  .print-meta-item { font-size: 0.82rem; }
+  .print-meta-item span:first-child { color: #666; display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.5px; }
+  .print-footer { margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .sign-box { border-top: 1px solid #333; padding-top: 6px; font-size: 0.78rem; color: #555; text-align: center; }
+  /* Compact print table for 15 rows on A4 */
+  @media print {
+    #print-bill { padding: 10px 12px; }
+    #pb-items-table { font-size: 8.5pt !important; }
+    #pb-items-table th, #pb-items-table td { padding: 2px 4px !important; }
+    .print-meta { margin-bottom: 6px; }
+    .print-footer { margin-top: 10px; }
+  }
+  #pb-items-table { font-size: 0.82rem; }
+  #pb-items-table th, #pb-items-table td { padding: 4px 5px; vertical-align: middle; }
 </style>
 </head>
 <body>
@@ -85,15 +95,9 @@
       </div>
       <div class="modal-body">
         <div class="mb-3">
-          <label class="form-label fw-semibold">Login as</label>
-          <div class="d-flex gap-2">
-            <button class="btn btn-outline-primary flex-fill" onclick="selectRole('user')" id="btn-role-user">
-              <i class="bi bi-person"></i> User
-            </button>
-            <button class="btn btn-outline-danger flex-fill" onclick="selectRole('admin')" id="btn-role-admin">
-              <i class="bi bi-shield-lock"></i> Admin
-            </button>
-          </div>
+          <label class="form-label fw-semibold">Username</label>
+          <input type="text" id="login-username" class="form-control" placeholder="Enter username"
+                 onkeydown="if(event.key==='Enter') document.getElementById('login-pw').focus()">
         </div>
         <div class="mb-3">
           <label class="form-label fw-semibold">Password</label>
@@ -104,9 +108,6 @@
         <button class="btn btn-primary w-100" onclick="doLogin()">
           <i class="bi bi-box-arrow-in-right"></i> Sign In
         </button>
-        <div class="text-muted text-center mt-3" style="font-size:0.78rem;">
-          Default passwords — User: <code>user123</code> &nbsp;|&nbsp; Admin: <code>admin123</code>
-        </div>
       </div>
     </div>
   </div>
@@ -130,6 +131,7 @@
       </ul>
       <div class="d-flex align-items-center gap-2">
         <span class="badge bg-light text-dark" id="nav-role-badge"></span>
+        <span class="text-white-50 small" id="nav-username"></span>
         <button class="btn btn-sm btn-outline-light" onclick="doLogout()"><i class="bi bi-box-arrow-right"></i> Logout</button>
       </div>
     </div>
@@ -163,7 +165,6 @@
             </div>
             <div id="client-suggestions" class="list-group" style="position:absolute;z-index:999;max-width:360px;"></div>
             <input type="hidden" id="bill-client-id">
-            <input type="hidden" id="bill-client-discount-type" value="amount">
             <input type="hidden" id="bill-client-discount-value" value="0">
           </div>
           <div class="col-md-3">
@@ -190,16 +191,16 @@
           <table class="table table-bordered mb-0" id="bill-table">
             <thead>
               <tr>
-                <th style="width:40px;">#</th>
-                <th style="width:120px;">Brand</th>
-                <th style="width:150px;">Product</th>
-                <th style="width:160px;">Size</th>
-                <th style="width:100px;">Thickness</th>
-                <th style="width:70px;">Qty</th>
-                <th style="width:120px;">Unit Price (₹)</th>
-                <th style="width:160px;">Discount</th>
-                <th style="width:120px;">Total (₹)</th>
-                <th style="width:40px;"></th>
+                <th style="width:36px;">#</th>
+                <th style="width:110px;">Brand</th>
+                <th>Product</th>
+                <th style="width:130px;">Size</th>
+                <th style="width:70px;">H.</th>
+                <th style="width:55px;">Qty</th>
+                <th style="width:110px;">Unit Price (₹)</th>
+                <th style="width:130px;">Disc. %</th>
+                <th style="width:110px;">Total (₹)</th>
+                <th style="width:36px;"></th>
               </tr>
             </thead>
             <tbody id="bill-items-body">
@@ -418,7 +419,7 @@
 
     <!-- Settings Tab -->
     <div id="admin-tab-settings" style="display:none;">
-      <div class="row g-3">
+      <div class="row g-3 mb-4">
         <div class="col-md-5">
           <div class="card">
             <div class="card-header fw-semibold"><i class="bi bi-building"></i> Company Name</div>
@@ -428,23 +429,25 @@
             </div>
           </div>
         </div>
-        <div class="col-md-5">
-          <div class="card">
-            <div class="card-header fw-semibold"><i class="bi bi-key"></i> Change Passwords</div>
-            <div class="card-body">
-              <div class="mb-3">
-                <label class="form-label small fw-semibold">User Password</label>
-                <input type="password" id="setting-user-pw" class="form-control form-control-sm" placeholder="New user password">
-                <button class="btn btn-outline-primary btn-sm mt-1" onclick="changePassword('user')">Update User Password</button>
-              </div>
-              <hr>
-              <div>
-                <label class="form-label small fw-semibold">Admin Password</label>
-                <input type="password" id="setting-admin-pw" class="form-control form-control-sm" placeholder="New admin password">
-                <button class="btn btn-outline-danger btn-sm mt-1" onclick="changePassword('admin')">Update Admin Password</button>
-              </div>
-            </div>
-          </div>
+      </div>
+
+      <!-- User Management -->
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <h6 class="fw-bold mb-0"><i class="bi bi-people"></i> Users</h6>
+        <button class="btn btn-primary btn-sm" onclick="openUserModal(null)">
+          <i class="bi bi-person-plus"></i> Add User
+        </button>
+      </div>
+      <div class="card">
+        <div class="card-body p-0">
+          <table class="table table-hover mb-0">
+            <thead>
+              <tr><th>Username</th><th>Role</th><th>Created</th><th></th></tr>
+            </thead>
+            <tbody id="users-body">
+              <tr><td colspan="4" class="text-center text-muted py-3">Loading…</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -477,20 +480,20 @@
       <div class="print-meta-item"><span>Client</span><strong id="pb-client"></strong></div>
       <div class="print-meta-item"><span>Packing Slip No.</span><strong id="pb-slip"></strong></div>
       <div class="print-meta-item"><span>Despatch Date</span><strong id="pb-despatch"></strong></div>
-      <div class="print-meta-item"><span>Total Amount</span><strong id="pb-total" style="font-size:1.1rem;color:#1565c0;"></strong></div>
+      <div class="print-meta-item"><span>Total Amount</span><strong id="pb-total" style="font-size:1rem;color:#1565c0;"></strong></div>
     </div>
-    <table class="table table-bordered" style="font-size:0.85rem;" id="pb-items-table">
+    <table class="table table-bordered table-sm" id="pb-items-table">
       <thead>
         <tr>
-          <th>#</th>
-          <th>Brand</th>
+          <th style="width:28px;">#</th>
+          <th style="width:70px;">Brand</th>
           <th>Product</th>
-          <th>Size</th>
-          <th>Thickness</th>
-          <th>Qty</th>
-          <th>Unit Price (₹)</th>
-          <th>Discount</th>
-          <th>Total (₹)</th>
+          <th style="width:70px;">Size</th>
+          <th style="width:36px;">H.</th>
+          <th style="width:30px;">Qty</th>
+          <th style="width:80px;">Price (₹)</th>
+          <th style="width:44px;">Disc.</th>
+          <th style="width:84px;">Total (₹)</th>
         </tr>
       </thead>
       <tbody id="pb-items-body"></tbody>
@@ -538,13 +541,10 @@
           <textarea id="cm-address" class="form-control" rows="2" placeholder="Address"></textarea>
         </div>
         <div class="mb-3">
-          <label class="form-label fw-semibold">Default Discount</label>
+          <label class="form-label fw-semibold">Default Discount (%)</label>
           <div class="input-group">
-            <select id="cm-discount-type" class="form-select" style="max-width:100px;">
-              <option value="amount">₹ Amount</option>
-              <option value="percent">% Percent</option>
-            </select>
-            <input type="number" id="cm-discount-value" class="form-control" value="0" min="0" step="0.01">
+            <input type="number" id="cm-discount-value" class="form-control" value="0" min="0" max="100" step="0.01" placeholder="0">
+            <span class="input-group-text">%</span>
           </div>
         </div>
         <div id="cm-error" class="text-danger" style="display:none;"></div>
@@ -674,6 +674,45 @@
   </div>
 </div>
 
+<!-- Add / Edit User Modal -->
+<div class="modal fade" id="userModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="um-title">Add User</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="um-id">
+        <div class="mb-3" id="um-username-wrap">
+          <label class="form-label fw-semibold">Username</label>
+          <input type="text" id="um-username" class="form-control" placeholder="e.g. sales1">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold" id="um-pw-label">Password</label>
+          <input type="password" id="um-password" class="form-control" placeholder="Min 4 characters">
+          <div class="form-text" id="um-pw-hint" style="display:none;">Leave blank to keep current password</div>
+        </div>
+        <div class="mb-3" id="um-role-wrap">
+          <label class="form-label fw-semibold">Role</label>
+          <select id="um-role" class="form-select">
+            <option value="user">User (can create bills, view prices)</option>
+            <option value="admin">Admin (full access)</option>
+          </select>
+        </div>
+        <div id="um-error" class="text-danger" style="display:none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-danger" id="um-delete-btn" style="display:none;" onclick="deleteUser()">
+          <i class="bi bi-trash"></i> Delete User
+        </button>
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="saveUser()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="position-fixed bottom-0 end-0 p-3" style="z-index:9999;">
   <div id="toast" class="toast align-items-center" role="alert">
@@ -701,43 +740,36 @@ let STATE = {
 document.addEventListener('DOMContentLoaded', async () => {
   const r = await api('GET', '/api/me');
   if (r.role) {
-    await afterLogin(r.role);
+    await afterLogin(r.role, r.username);
   } else {
     new bootstrap.Modal(document.getElementById('loginModal')).show();
   }
 });
 
 // ─────────────────────────── Auth ───────────────────────────
-let selectedRole = 'user';
-
-function selectRole(role) {
-  selectedRole = role;
-  document.getElementById('btn-role-user').classList.toggle('btn-primary', role === 'user');
-  document.getElementById('btn-role-user').classList.toggle('btn-outline-primary', role !== 'user');
-  document.getElementById('btn-role-admin').classList.toggle('btn-danger', role === 'admin');
-  document.getElementById('btn-role-admin').classList.toggle('btn-outline-danger', role !== 'admin');
-}
-selectRole('user');
-
 async function doLogin() {
-  const pw  = document.getElementById('login-pw').value;
-  const err = document.getElementById('login-error');
+  const username = document.getElementById('login-username').value.trim();
+  const pw       = document.getElementById('login-pw').value;
+  const err      = document.getElementById('login-error');
   err.style.display = 'none';
-  const r   = await api('POST', '/api/login', {role: selectedRole, password: pw});
+  if (!username) { err.textContent = 'Please enter your username'; err.style.display = ''; return; }
+  const r = await api('POST', '/api/login', {username, password: pw});
   if (r.error) {
     err.textContent = r.error;
     err.style.display = '';
   } else {
     bootstrap.Modal.getInstance(document.getElementById('loginModal')).hide();
-    await afterLogin(r.role);
+    await afterLogin(r.role, r.username);
   }
 }
 
-async function afterLogin(role) {
-  STATE.role = role;
+async function afterLogin(role, username) {
+  STATE.role     = role;
+  STATE.username = username;
   document.getElementById('main-nav').style.removeProperty('display');
   document.getElementById('app-container').style.display = '';
-  document.getElementById('nav-role-badge').textContent = role === 'admin' ? '🔐 Admin' : '👤 User';
+  document.getElementById('nav-role-badge').textContent  = role === 'admin' ? '🔐 Admin' : '👤 User';
+  document.getElementById('nav-username').textContent    = username || '';
 
   if (role === 'admin') {
     document.querySelectorAll('.admin-only').forEach(el => el.style.display = '');
@@ -764,6 +796,7 @@ async function doLogout() {
   STATE = { role: null, products: {}, clients: [], billRowCount: 0, currentBillId: null };
   document.getElementById('main-nav').style.display = 'none';
   document.getElementById('app-container').style.display = 'none';
+  document.getElementById('login-username').value = '';
   document.getElementById('login-pw').value = '';
   document.getElementById('login-error').style.display = 'none';
   document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
@@ -791,7 +824,6 @@ function clearBill(full = true) {
   if (full) {
     document.getElementById('bill-client-input').value = '';
     document.getElementById('bill-client-id').value = '';
-    document.getElementById('bill-client-discount-type').value = 'amount';
     document.getElementById('bill-client-discount-value').value = '0';
     document.getElementById('bill-slip-no').value = '';
     document.getElementById('bill-despatch-date').value = '';
@@ -847,12 +879,9 @@ function addBillRow() {
     </td>
     <td>
       <div class="input-group input-group-sm">
-        <select class="form-select" id="r${idx}-disc-type" style="max-width:55px;" onchange="calcRow(${idx})">
-          <option value="amount">₹</option>
-          <option value="percent">%</option>
-        </select>
-        <input type="number" class="form-control" id="r${idx}-disc-val" value="0" min="0" step="0.01"
-               oninput="calcRow(${idx})" style="max-width:80px;">
+        <input type="number" class="form-control" id="r${idx}-disc-val" value="0" min="0" max="100" step="0.01"
+               oninput="calcRow(${idx})" style="max-width:80px;" placeholder="0">
+        <span class="input-group-text">%</span>
       </div>
     </td>
     <td>
@@ -866,10 +895,8 @@ function addBillRow() {
   tbody.appendChild(tr);
 
   // Apply client default discount
-  const defType  = document.getElementById('bill-client-discount-type').value;
-  const defVal   = parseFloat(document.getElementById('bill-client-discount-value').value) || 0;
-  document.getElementById(`r${idx}-disc-type`).value = defType;
-  document.getElementById(`r${idx}-disc-val`).value  = defVal;
+  const defVal = parseFloat(document.getElementById('bill-client-discount-value').value) || 0;
+  document.getElementById(`r${idx}-disc-val`).value = defVal;
 }
 
 function removeRow(idx) {
@@ -954,12 +981,11 @@ function resetPrice(idx) {
 }
 
 function calcRow(idx) {
-  const price     = parseFloat(document.getElementById(`r${idx}-price-val`).value) || 0;
-  const qty       = parseInt(document.getElementById(`r${idx}-qty`).value) || 0;
-  const discType  = document.getElementById(`r${idx}-disc-type`).value;
-  const discVal   = parseFloat(document.getElementById(`r${idx}-disc-val`).value) || 0;
-  const subtotal  = price * qty;
-  const discAmt   = discType === 'percent' ? subtotal * discVal / 100 : discVal;
+  const price    = parseFloat(document.getElementById(`r${idx}-price-val`).value) || 0;
+  const qty      = parseInt(document.getElementById(`r${idx}-qty`).value) || 0;
+  const discVal  = parseFloat(document.getElementById(`r${idx}-disc-val`).value) || 0;
+  const subtotal = price * qty;
+  const discAmt  = subtotal * discVal / 100;
   const total     = Math.max(0, subtotal - discAmt);
   document.getElementById(`r${idx}-total`).textContent = fmt(total);
   recalcGrandTotal();
@@ -971,10 +997,9 @@ function recalcGrandTotal() {
     const idx      = row.id.replace('row-', '');
     const price    = parseFloat(document.getElementById(`r${idx}-price-val`)?.value) || 0;
     const qty      = parseInt(document.getElementById(`r${idx}-qty`)?.value) || 0;
-    const discType = document.getElementById(`r${idx}-disc-type`)?.value;
     const discVal  = parseFloat(document.getElementById(`r${idx}-disc-val`)?.value) || 0;
     const subtotal = price * qty;
-    const discAmt  = discType === 'percent' ? subtotal * discVal / 100 : discVal;
+    const discAmt  = subtotal * discVal / 100;
     grand     += Math.max(0, subtotal - discAmt);
     totalDisc += discAmt;
   });
@@ -994,7 +1019,7 @@ async function searchClients(q) {
     const clients = await api('GET', `/api/clients?q=${enc(q)}`);
     box.innerHTML = clients.map(c => `
       <a href="#" class="list-group-item list-group-item-action py-2"
-         onclick="selectClient(${c.id},'${esc(c.name)}','${c.discount_type}',${c.discount_value}); return false;">
+         onclick="selectClient(${c.id},'${esc(c.name)}',${c.discount_value}); return false;">
         <strong>${c.name}</strong>
         ${c.phone ? `<small class="text-muted ms-2">${c.phone}</small>` : ''}
       </a>`).join('');
@@ -1004,18 +1029,16 @@ async function searchClients(q) {
   }, 250);
 }
 
-function selectClient(id, name, discType, discVal) {
+function selectClient(id, name, discVal) {
   document.getElementById('bill-client-input').value = name;
   document.getElementById('bill-client-id').value    = id;
-  document.getElementById('bill-client-discount-type').value  = discType;
   document.getElementById('bill-client-discount-value').value = discVal;
   document.getElementById('client-suggestions').innerHTML = '';
 
   // Apply default discount to all current rows
   document.querySelectorAll('.bill-row').forEach(row => {
     const idx = row.id.replace('row-', '');
-    document.getElementById(`r${idx}-disc-type`).value = discType;
-    document.getElementById(`r${idx}-disc-val`).value  = discVal;
+    document.getElementById(`r${idx}-disc-val`).value = discVal;
     calcRow(idx);
   });
 }
@@ -1042,16 +1065,15 @@ async function saveBill() {
     const thk      = document.getElementById(`r${idx}-thickness`)?.value;
     const qty      = parseInt(document.getElementById(`r${idx}-qty`)?.value) || 0;
     const price    = parseFloat(document.getElementById(`r${idx}-price-val`)?.value) || 0;
-    const discType = document.getElementById(`r${idx}-disc-type`)?.value;
     const discVal  = parseFloat(document.getElementById(`r${idx}-disc-val`)?.value) || 0;
     const subtotal = price * qty;
-    const discAmt  = discType === 'percent' ? subtotal * discVal / 100 : discVal;
+    const discAmt  = subtotal * discVal / 100;
     const total    = Math.max(0, subtotal - discAmt);
 
     if (brand && product && sc && thk && qty > 0) {
       items.push({ sno: sno++, brand, product, size_code: sc, size_metric: sm,
                    thickness: thk, quantity: qty, unit_price: price,
-                   discount_type: discType, discount_value: discVal, total_value: total });
+                   discount_type: 'percent', discount_value: discVal, total_value: total });
     }
   });
 
@@ -1096,15 +1118,14 @@ async function previewBill() {
     const thk     = document.getElementById(`r${idx}-thickness`)?.value;
     const qty     = parseInt(document.getElementById(`r${idx}-qty`)?.value) || 0;
     const price   = parseFloat(document.getElementById(`r${idx}-price-val`)?.value) || 0;
-    const discType = document.getElementById(`r${idx}-disc-type`)?.value;
     const discVal  = parseFloat(document.getElementById(`r${idx}-disc-val`)?.value) || 0;
     const subtotal = price * qty;
-    const discAmt  = discType === 'percent' ? subtotal * discVal / 100 : discVal;
+    const discAmt  = subtotal * discVal / 100;
     const total    = Math.max(0, subtotal - discAmt);
     if (brand && product && sc && thk && qty > 0) {
       items.push({ sno: sno++, brand, product, size_code: sc, size_metric: sm,
                    thickness: thk, quantity: qty, unit_price: price,
-                   discount_type: discType, discount_value: discVal, total_value: total });
+                   discount_type: 'percent', discount_value: discVal, total_value: total });
     }
   });
   const bill = {
@@ -1131,9 +1152,7 @@ function renderPrintView(bill, items) {
 
   const tbody = document.getElementById('pb-items-body');
   tbody.innerHTML = items.map(item => {
-    const discStr = item.discount_value > 0
-      ? (item.discount_type === 'percent' ? `${item.discount_value}%` : `₹${fmt(item.discount_value)}`)
-      : '—';
+    const discStr = item.discount_value > 0 ? `${item.discount_value}%` : '—';
     return `<tr>
       <td>${item.sno}</td>
       <td>${item.brand}</td>
@@ -1214,9 +1233,7 @@ async function viewBill(id) {
   }
 
   const rows = items.map(item => {
-    const discStr = item.discount_value > 0
-      ? (item.discount_type === 'percent' ? `${item.discount_value}%` : `₹${fmt(item.discount_value)}`)
-      : '—';
+    const discStr = item.discount_value > 0 ? `${item.discount_value}%` : '—';
     return `<tr>
       <td>${item.sno}</td><td>${item.brand}</td><td>${item.product}</td>
       <td>${item.size_code}<br><small class="text-muted">${item.size_metric}</small></td>
@@ -1277,8 +1294,8 @@ async function loadClients(q = '') {
   }
   tbody.innerHTML = clients.map(c => {
     const discStr = c.discount_value > 0
-      ? (c.discount_type === 'percent' ? `${c.discount_value}%` : `₹${fmt(c.discount_value)}`)
       : 'None';
+    const discStr = c.discount_value > 0 ? `${c.discount_value}%` : 'None';
     return `<tr>
       <td><strong>${c.name}</strong></td>
       <td>${c.phone || '—'}</td>
@@ -1298,8 +1315,7 @@ function openClientModal(client, prefillName = '') {
   document.getElementById('cm-name').value          = client?.name || prefillName;
   document.getElementById('cm-phone').value         = client?.phone || '';
   document.getElementById('cm-address').value       = client?.address || '';
-  document.getElementById('cm-discount-type').value = client?.discount_type || 'amount';
-  document.getElementById('cm-discount-value').value= client?.discount_value ?? 0;
+  document.getElementById('cm-discount-value').value = client?.discount_value ?? 0;
   document.getElementById('cm-error').style.display = 'none';
   document.getElementById('client-modal-title').textContent = client ? 'Edit Client' : 'Add Client';
 
@@ -1321,7 +1337,6 @@ async function saveClient() {
     name,
     phone:          document.getElementById('cm-phone').value.trim(),
     address:        document.getElementById('cm-address').value.trim(),
-    discount_type:  document.getElementById('cm-discount-type').value,
     discount_value: parseFloat(document.getElementById('cm-discount-value').value) || 0,
   };
   const r = id
@@ -1334,7 +1349,7 @@ async function saveClient() {
     loadClients(document.getElementById('client-search').value);
     // If we were in new-bill context, auto-select this client
     if (document.getElementById('view-new-bill').classList.contains('active')) {
-      selectClient(r.id, r.name, r.discount_type, r.discount_value);
+      selectClient(r.id, r.name, r.discount_value);
     }
   } else {
     document.getElementById('cm-error').textContent = r.error || 'Save failed';
@@ -1543,6 +1558,7 @@ async function uploadExcel(input) {
 async function loadAdminSettings() {
   const s = await api('GET', '/api/settings');
   document.getElementById('setting-company').value = s.company_name || '';
+  loadUsers();
 }
 
 async function saveCompanyName() {
@@ -1555,24 +1571,92 @@ async function saveCompanyName() {
   }
 }
 
-async function changePassword(type) {
-  const inp = document.getElementById(`setting-${type}-pw`);
-  const pw  = inp.value;
-  const r   = await api('PUT', '/api/settings/password', {type, new_password: pw});
-  if (r.success) {
-    inp.value = '';
-    showToast(`${type === 'admin' ? 'Admin' : 'User'} password updated`, 'success');
-  } else {
-    showToast(r.error || 'Failed', 'danger');
-  }
-}
-
 function showAdminTab(tab, el) {
   document.querySelectorAll('#admin-tabs .nav-link').forEach(l => l.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('admin-tab-pricelist').style.display = tab === 'pricelist' ? '' : 'none';
   document.getElementById('admin-tab-settings').style.display  = tab === 'settings'  ? '' : 'none';
+  if (tab === 'settings') loadUsers();
   return false;
+}
+
+// ─────────────────────────── User Management ───────────────────────────
+async function loadUsers() {
+  const users = await api('GET', '/api/users');
+  const tbody = document.getElementById('users-body');
+  if (!users || users.error) return;
+  tbody.innerHTML = users.map(u => `
+    <tr>
+      <td><strong>${u.username}</strong></td>
+      <td><span class="badge ${u.role === 'admin' ? 'bg-danger' : 'bg-primary'}">${u.role}</span></td>
+      <td><small class="text-muted">${u.created_at}</small></td>
+      <td>
+        <button class="btn btn-sm btn-outline-secondary" onclick="openUserModal(${JSON.stringify(u).replace(/"/g,'&quot;')})">
+          <i class="bi bi-pencil"></i>
+        </button>
+      </td>
+    </tr>`).join('');
+}
+
+function openUserModal(user) {
+  document.getElementById('um-id').value       = user?.id || '';
+  document.getElementById('um-username').value = user?.username || '';
+  document.getElementById('um-password').value = '';
+  document.getElementById('um-role').value     = user?.role || 'user';
+  document.getElementById('um-error').style.display = 'none';
+  document.getElementById('um-title').textContent   = user ? 'Edit User' : 'Add User';
+  document.getElementById('um-username-wrap').style.display = user ? 'none' : '';
+  document.getElementById('um-role-wrap').style.display     = user ? 'none' : '';
+  document.getElementById('um-pw-hint').style.display       = user ? '' : 'none';
+  document.getElementById('um-pw-label').textContent        = user ? 'New Password' : 'Password';
+  const del = document.getElementById('um-delete-btn');
+  del.style.display = (user && user.username !== STATE.username) ? '' : 'none';
+  new bootstrap.Modal(document.getElementById('userModal')).show();
+}
+
+async function saveUser() {
+  const id  = document.getElementById('um-id').value;
+  const err = document.getElementById('um-error');
+  err.style.display = 'none';
+
+  if (id) {
+    // Change password only
+    const pw = document.getElementById('um-password').value;
+    if (!pw) { bootstrap.Modal.getInstance(document.getElementById('userModal')).hide(); return; }
+    const r = await api('PUT', `/api/users/${id}/password`, {password: pw});
+    if (r.success) {
+      bootstrap.Modal.getInstance(document.getElementById('userModal')).hide();
+      showToast('Password updated', 'success');
+    } else { err.textContent = r.error || 'Failed'; err.style.display = ''; }
+  } else {
+    // Create new user
+    const data = {
+      username: document.getElementById('um-username').value.trim(),
+      password: document.getElementById('um-password').value,
+      role:     document.getElementById('um-role').value,
+    };
+    const r = await api('POST', '/api/users', data);
+    if (r.id) {
+      bootstrap.Modal.getInstance(document.getElementById('userModal')).hide();
+      showToast(`User "${r.username}" created`, 'success');
+      loadUsers();
+    } else { err.textContent = r.error || 'Failed'; err.style.display = ''; }
+  }
+}
+
+async function deleteUser() {
+  const id = document.getElementById('um-id').value;
+  if (!id || !confirm('Delete this user? This cannot be undone.')) return;
+  const r = await api('DELETE', `/api/users/${id}`);
+  if (r.success) {
+    bootstrap.Modal.getInstance(document.getElementById('userModal')).hide();
+    showToast('User deleted', 'success');
+    loadUsers();
+  } else {
+    const err = document.getElementById('um-error');
+    err.textContent = r.error || 'Failed';
+    err.style.display = '';
+  }
 }
 
 // ─────────────────────────── Utilities ───────────────────────────
