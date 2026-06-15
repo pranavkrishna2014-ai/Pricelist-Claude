@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, jsonify, session, send_file, Response
-import sqlite3, hashlib, os, io, datetime
+import sqlite3, hashlib, os, io, datetime, threading, json
 from functools import wraps
 
 app = Flask(__name__)
@@ -763,10 +763,201 @@ def print_bills():
         if not bill:
             continue
         items = conn.execute("SELECT * FROM bill_items WHERE bill_id=? ORDER BY sno", (bid,)).fetchall()
-        bills_data.append({'bill': dict(bill), 'items': [dict(i) for i in items]})
+        bills_data.append({'bill': dict(bill), 'bill_items': [dict(i) for i in items]})
     conn.close()
 
     return render_template('print_bills.html', bills=bills_data, company_name=company_name)
+
+# ───────────────────────────── Google Drive backup ─────────────────────────────
+
+GDRIVE_SCOPES       = ['https://www.googleapis.com/auth/drive.file']
+GDRIVE_TOKEN_KEY    = 'gdrive_token'       # stored as JSON in settings
+GDRIVE_CLIENT_KEY   = 'gdrive_client'      # stores {client_id, client_secret}
+GDRIVE_FOLDER_KEY   = 'gdrive_folder_id'   # Google Drive folder ID (optional)
+
+def _gdrive_flow(client_id, client_secret):
+    try:
+        from google_auth_oauthlib.flow import Flow
+    except ImportError:
+        return None
+    return Flow.from_client_config(
+        {'web': {'client_id': client_id, 'client_secret': client_secret,
+                 'auth_uri': 'https://accounts.google.com/o/oauth2/auth',
+                 'token_uri': 'https://oauth2.googleapis.com/token',
+                 'redirect_uris': ['http://localhost:5000/api/gdrive/callback']}},
+        scopes=GDRIVE_SCOPES,
+        redirect_uri='http://localhost:5000/api/gdrive/callback'
+    )
+
+def _gdrive_credentials():
+    """Return valid Credentials or None."""
+    try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request as GRequest
+    except ImportError:
+        return None
+    conn = get_db()
+    token_row  = conn.execute("SELECT value FROM settings WHERE key=?", (GDRIVE_TOKEN_KEY,)).fetchone()
+    client_row = conn.execute("SELECT value FROM settings WHERE key=?", (GDRIVE_CLIENT_KEY,)).fetchone()
+    conn.close()
+    if not token_row or not client_row:
+        return None
+    token_data  = json.loads(token_row['value'])
+    client_data = json.loads(client_row['value'])
+    creds = Credentials(
+        token=token_data.get('token'),
+        refresh_token=token_data.get('refresh_token'),
+        token_uri='https://oauth2.googleapis.com/token',
+        client_id=client_data['client_id'],
+        client_secret=client_data['client_secret'],
+        scopes=GDRIVE_SCOPES,
+    )
+    if creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(GRequest())
+            _save_gdrive_token(creds)
+        except Exception:
+            return None
+    return creds if creds.valid else None
+
+def _save_gdrive_token(creds):
+    token_data = json.dumps({
+        'token': creds.token,
+        'refresh_token': creds.refresh_token,
+    })
+    conn = get_db()
+    conn.execute("INSERT OR REPLACE INTO settings VALUES (?,?)", (GDRIVE_TOKEN_KEY, token_data))
+    conn.commit()
+    conn.close()
+
+def _gdrive_upload_backup():
+    """Upload today's backup to Google Drive. Called by background scheduler."""
+    creds = _gdrive_credentials()
+    if not creds:
+        return False
+    try:
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaFileUpload
+    except ImportError:
+        return False
+    date_str = datetime.date.today().strftime('%Y-%m-%d')
+    filename = f'mattress_backup_{date_str}.db'
+    conn = get_db()
+    folder_row = conn.execute("SELECT value FROM settings WHERE key=?", (GDRIVE_FOLDER_KEY,)).fetchone()
+    conn.close()
+    folder_id = folder_row['value'] if folder_row else None
+
+    service  = build('drive', 'v3', credentials=creds)
+    metadata = {'name': filename}
+    if folder_id:
+        metadata['parents'] = [folder_id]
+
+    # Delete existing file with same name to avoid duplicates
+    q = f"name='{filename}'"
+    if folder_id:
+        q += f" and '{folder_id}' in parents"
+    existing = service.files().list(q=q, spaces='drive', fields='files(id)').execute()
+    for f in existing.get('files', []):
+        service.files().delete(fileId=f['id']).execute()
+
+    media = MediaFileUpload(DB_PATH, mimetype='application/octet-stream')
+    service.files().create(body=metadata, media_body=media, fields='id').execute()
+    return True
+
+def _schedule_daily_backup():
+    """Run backup now, then re-schedule for next midnight."""
+    _gdrive_upload_backup()
+    now    = datetime.datetime.now()
+    nxt    = (now + datetime.timedelta(days=1)).replace(hour=2, minute=0, second=0, microsecond=0)
+    delay  = (nxt - now).total_seconds()
+    t = threading.Timer(delay, _schedule_daily_backup)
+    t.daemon = True
+    t.start()
+
+@app.route('/api/gdrive/status')
+@admin_required
+def gdrive_status():
+    conn = get_db()
+    has_client = conn.execute("SELECT 1 FROM settings WHERE key=?", (GDRIVE_CLIENT_KEY,)).fetchone()
+    has_token  = conn.execute("SELECT 1 FROM settings WHERE key=?", (GDRIVE_TOKEN_KEY,)).fetchone()
+    folder_row = conn.execute("SELECT value FROM settings WHERE key=?", (GDRIVE_FOLDER_KEY,)).fetchone()
+    conn.close()
+    return jsonify({
+        'configured': bool(has_client),
+        'connected':  bool(has_token),
+        'folder_id':  folder_row['value'] if folder_row else '',
+    })
+
+@app.route('/api/gdrive/configure', methods=['POST'])
+@admin_required
+def gdrive_configure():
+    data          = request.json or {}
+    client_id     = (data.get('client_id') or '').strip()
+    client_secret = (data.get('client_secret') or '').strip()
+    folder_id     = (data.get('folder_id') or '').strip()
+    if not client_id or not client_secret:
+        return jsonify({'error': 'Client ID and Client Secret are required'}), 400
+    client_data = json.dumps({'client_id': client_id, 'client_secret': client_secret})
+    conn = get_db()
+    conn.execute("INSERT OR REPLACE INTO settings VALUES (?,?)", (GDRIVE_CLIENT_KEY, client_data))
+    if folder_id:
+        conn.execute("INSERT OR REPLACE INTO settings VALUES (?,?)", (GDRIVE_FOLDER_KEY, folder_id))
+    # Clear any old token so user must re-authenticate
+    conn.execute("DELETE FROM settings WHERE key=?", (GDRIVE_TOKEN_KEY,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
+
+@app.route('/api/gdrive/connect')
+@admin_required
+def gdrive_connect():
+    conn = get_db()
+    client_row = conn.execute("SELECT value FROM settings WHERE key=?", (GDRIVE_CLIENT_KEY,)).fetchone()
+    conn.close()
+    if not client_row:
+        return jsonify({'error': 'Configure Google credentials first'}), 400
+    d    = json.loads(client_row['value'])
+    flow = _gdrive_flow(d['client_id'], d['client_secret'])
+    if not flow:
+        return jsonify({'error': 'google-auth-oauthlib not installed'}), 500
+    auth_url, _ = flow.authorization_url(access_type='offline', prompt='consent')
+    return jsonify({'auth_url': auth_url})
+
+@app.route('/api/gdrive/callback')
+def gdrive_callback():
+    conn = get_db()
+    client_row = conn.execute("SELECT value FROM settings WHERE key=?", (GDRIVE_CLIENT_KEY,)).fetchone()
+    conn.close()
+    if not client_row:
+        return 'Not configured', 400
+    d    = json.loads(client_row['value'])
+    flow = _gdrive_flow(d['client_id'], d['client_secret'])
+    flow.fetch_token(authorization_response=request.url.replace('http://', 'https://').replace(':5000', ':5000'))
+    _save_gdrive_token(flow.credentials)
+    # Kick off the daily schedule
+    threading.Thread(target=_schedule_daily_backup, daemon=True).start()
+    return '''<html><body style="font-family:sans-serif;text-align:center;padding:60px;">
+    <h2 style="color:#4f46e5;">✅ Google Drive connected!</h2>
+    <p>Your database will be backed up to Google Drive automatically every day at 2 AM.</p>
+    <p><a href="/" style="color:#4f46e5;">← Back to app</a></p></body></html>'''
+
+@app.route('/api/gdrive/backup_now', methods=['POST'])
+@admin_required
+def gdrive_backup_now():
+    ok = _gdrive_upload_backup()
+    if ok:
+        return jsonify({'success': True, 'message': 'Backup uploaded to Google Drive successfully'})
+    return jsonify({'error': 'Backup failed. Check Google Drive connection.'}), 500
+
+@app.route('/api/gdrive/disconnect', methods=['POST'])
+@admin_required
+def gdrive_disconnect():
+    conn = get_db()
+    conn.execute("DELETE FROM settings WHERE key IN (?,?,?)",
+                 (GDRIVE_TOKEN_KEY, GDRIVE_CLIENT_KEY, GDRIVE_FOLDER_KEY))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True})
 
 # ───────────────────────────── Settings routes ─────────────────────────────
 
@@ -796,6 +987,10 @@ def index():
 
 if __name__ == '__main__':
     init_db()
+    # If Google Drive was already connected, start the daily backup scheduler
+    if _gdrive_credentials():
+        threading.Thread(target=_schedule_daily_backup, daemon=True).start()
+        print("📦 Google Drive auto-backup scheduled (runs daily at 2 AM)")
     print("\n🛏  Mattress Price App running at http://localhost:5000")
     print("   For network access, use this computer's IP address on port 5000\n")
     app.run(host='0.0.0.0', port=5000, debug=False)

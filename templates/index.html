@@ -250,9 +250,12 @@
     </div>
     <div class="filter-bar">
       <div class="row g-2 align-items-end">
-        <div class="col-md-3">
+        <div class="col-md-3" style="position:relative;">
           <label class="form-label mb-1 small fw-semibold">Client</label>
-          <input type="text" id="rec-client-filter" class="form-control form-control-sm" placeholder="Search by client...">
+          <input type="text" id="rec-client-filter" class="form-control form-control-sm" placeholder="Type 3+ letters…"
+                 oninput="recClientSuggest(this.value)" autocomplete="off">
+          <div id="rec-client-suggestions" class="list-group shadow-sm"
+               style="position:absolute;z-index:999;width:100%;display:none;max-height:200px;overflow-y:auto;"></div>
         </div>
         <div class="col-md-2">
           <label class="form-label mb-1 small fw-semibold">Packing Slip</label>
@@ -269,7 +272,9 @@
         <div class="col-md-3 d-flex align-items-end gap-1 flex-wrap">
           <button class="btn btn-primary btn-sm" onclick="loadRecords()"><i class="bi bi-search"></i> Search</button>
           <button class="btn btn-outline-secondary btn-sm" onclick="clearRecordFilters()">Clear</button>
-          <button class="btn btn-outline-success btn-sm" onclick="printSelectedBills()" title="Print selected bills"><i class="bi bi-printer"></i> Print Selected</button>
+          <button class="btn btn-success btn-sm" onclick="printSelectedBills()" title="Print / save as PDF for ticked bills">
+            <i class="bi bi-file-earmark-pdf"></i> Download Selected (PDF)
+          </button>
         </div>
       </div>
     </div>
@@ -444,15 +449,24 @@
 
       <!-- Backup -->
       <div class="row g-3 mb-4">
-        <div class="col-md-6">
+        <div class="col-md-5">
           <div class="card">
-            <div class="card-header fw-semibold"><i class="bi bi-database-down"></i> Database Backup</div>
+            <div class="card-header fw-semibold"><i class="bi bi-database-down"></i> Manual Backup</div>
             <div class="card-body">
-              <p class="text-muted small mb-2">Download the full database file. Save it to Google Drive or iCloud daily to keep your data safe.</p>
+              <p class="text-muted small mb-2">Download the full database file now.</p>
               <a class="btn btn-outline-primary btn-sm" href="/api/backup">
-                <i class="bi bi-download"></i> Download Backup
+                <i class="bi bi-download"></i> Download Backup (.db)
               </a>
-              <div class="mt-2 text-muted" style="font-size:0.78rem;"><i class="bi bi-info-circle"></i> Run this daily and save to Google Drive / iCloud for safety.</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-7">
+          <div class="card">
+            <div class="card-header fw-semibold"><i class="bi bi-google"></i> Google Drive Auto-Backup</div>
+            <div class="card-body" id="gdrive-panel">
+              <div id="gdrive-status-area">
+                <div class="text-muted small mb-2">Loading status…</div>
+              </div>
             </div>
           </div>
         </div>
@@ -600,6 +614,9 @@
           <i class="bi bi-trash"></i> Delete
         </button>
         <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <button class="btn btn-outline-success" onclick="downloadBillPdf(modalBillId)">
+          <i class="bi bi-file-earmark-pdf"></i> Download PDF
+        </button>
         <button class="btn btn-primary" onclick="printFromModal()">
           <i class="bi bi-printer"></i> Print
         </button>
@@ -1237,9 +1254,12 @@ async function loadRecords() {
       <td class="text-center"><strong>₹${fmt(b.grand_total)}</strong></td>
       <td>${b.created_by || '—'}</td>
       <td>${b.created_at}</td>
-      <td>
-        <button class="btn btn-sm btn-outline-primary" onclick="viewBill(${b.id})">
+      <td class="text-nowrap">
+        <button class="btn btn-sm btn-outline-primary" onclick="viewBill(${b.id})" title="View">
           <i class="bi bi-eye"></i>
+        </button>
+        <button class="btn btn-sm btn-outline-success ms-1" onclick="downloadBillPdf(${b.id})" title="Download PDF">
+          <i class="bi bi-file-earmark-pdf"></i>
         </button>
       </td>
     </tr>`).join('');
@@ -1250,7 +1270,37 @@ function clearRecordFilters() {
   document.getElementById('rec-to').value   = '';
   document.getElementById('rec-client-filter').value = '';
   document.getElementById('rec-slip-filter').value   = '';
+  document.getElementById('rec-client-suggestions').style.display = 'none';
   loadRecords();
+}
+
+// ── Records: client name autocomplete ──
+let recClientTimeout;
+async function recClientSuggest(q) {
+  clearTimeout(recClientTimeout);
+  const box = document.getElementById('rec-client-suggestions');
+  if (q.length < 3) { box.style.display = 'none'; return; }
+  recClientTimeout = setTimeout(async () => {
+    const clients = await api('GET', `/api/clients?q=${enc(q)}`);
+    if (!clients.length) { box.style.display = 'none'; return; }
+    box.innerHTML = clients.map(c =>
+      `<a href="#" class="list-group-item list-group-item-action py-1 small"
+          onclick="recClientPick('${esc(c.name)}'); return false;">${c.name}</a>`
+    ).join('');
+    box.style.display = '';
+  }, 200);
+}
+
+function recClientPick(name) {
+  document.getElementById('rec-client-filter').value = name;
+  document.getElementById('rec-client-suggestions').style.display = 'none';
+  loadRecords();
+}
+
+// ── Per-bill PDF download ──
+function downloadBillPdf(id) {
+  // Opens the single-bill print page in a new tab; user saves as PDF from browser
+  window.open(`/print/bills?ids=${id}`, '_blank');
 }
 
 function toggleAllBillCheckboxes(masterCb) {
@@ -1605,6 +1655,7 @@ async function loadAdminSettings() {
   const s = await api('GET', '/api/settings');
   document.getElementById('setting-company').value = s.company_name || '';
   loadUsers();
+  loadGdriveStatus();
 }
 
 async function saveCompanyName() {
@@ -1622,7 +1673,7 @@ function showAdminTab(tab, el) {
   el.classList.add('active');
   document.getElementById('admin-tab-pricelist').style.display = tab === 'pricelist' ? '' : 'none';
   document.getElementById('admin-tab-settings').style.display  = tab === 'settings'  ? '' : 'none';
-  if (tab === 'settings') loadUsers();
+  if (tab === 'settings') { loadUsers(); loadGdriveStatus(); }
   return false;
 }
 
@@ -1705,6 +1756,120 @@ async function deleteUser() {
   }
 }
 
+// ─────────────────────────── Google Drive Backup ───────────────────────────
+async function loadGdriveStatus() {
+  const s = await api('GET', '/api/gdrive/status');
+  const area = document.getElementById('gdrive-status-area');
+  if (!s || s.error) { area.innerHTML = '<div class="text-danger small">Could not load status</div>'; return; }
+
+  if (s.connected) {
+    area.innerHTML = `
+      <div class="alert alert-success py-2 mb-2 small">
+        <i class="bi bi-check-circle-fill"></i> <strong>Connected to Google Drive</strong> — backup runs automatically at 2 AM daily.
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-success btn-sm" onclick="gdriveBackupNow()">
+          <i class="bi bi-cloud-upload"></i> Backup Now
+        </button>
+        <button class="btn btn-outline-danger btn-sm" onclick="gdriveDisconnect()">
+          <i class="bi bi-x-circle"></i> Disconnect
+        </button>
+      </div>`;
+  } else if (s.configured) {
+    area.innerHTML = `
+      <div class="alert alert-warning py-2 mb-2 small">
+        <i class="bi bi-exclamation-triangle"></i> Credentials saved but not yet connected. Click "Authorise" to link your Google account.
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="gdriveAuthorise()">
+        <i class="bi bi-google"></i> Authorise Google Drive
+      </button>
+      <button class="btn btn-outline-secondary btn-sm ms-1" onclick="showGdriveForm()">
+        <i class="bi bi-pencil"></i> Edit Credentials
+      </button>`;
+  } else {
+    area.innerHTML = `
+      <p class="text-muted small mb-3">
+        Connect Google Drive to automatically back up your data every day.<br>
+        You need a free Google Cloud project with the Drive API enabled.
+        <a href="https://console.cloud.google.com/" target="_blank">Get credentials →</a>
+      </p>
+      <div id="gdrive-form">
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">Client ID</label>
+          <input type="text" id="gd-client-id" class="form-control form-control-sm" placeholder="xxxxxx.apps.googleusercontent.com">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">Client Secret</label>
+          <input type="password" id="gd-client-secret" class="form-control form-control-sm" placeholder="GOCSPX-…">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold">Google Drive Folder ID <span class="text-muted fw-normal">(optional — leave blank for root)</span></label>
+          <input type="text" id="gd-folder-id" class="form-control form-control-sm" placeholder="Paste folder ID from Drive URL">
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="gdriveSetup()">
+          <i class="bi bi-save"></i> Save & Connect
+        </button>
+      </div>`;
+  }
+}
+
+function showGdriveForm() {
+  const area = document.getElementById('gdrive-status-area');
+  area.innerHTML = `
+    <div class="mb-2">
+      <label class="form-label small fw-semibold">Client ID</label>
+      <input type="text" id="gd-client-id" class="form-control form-control-sm">
+    </div>
+    <div class="mb-2">
+      <label class="form-label small fw-semibold">Client Secret</label>
+      <input type="password" id="gd-client-secret" class="form-control form-control-sm">
+    </div>
+    <div class="mb-2">
+      <label class="form-label small fw-semibold">Google Drive Folder ID <span class="text-muted fw-normal">(optional)</span></label>
+      <input type="text" id="gd-folder-id" class="form-control form-control-sm">
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="gdriveSetup()">Save & Connect</button>
+    <button class="btn btn-outline-secondary btn-sm ms-1" onclick="loadGdriveStatus()">Cancel</button>`;
+}
+
+async function gdriveSetup() {
+  const data = {
+    client_id:     document.getElementById('gd-client-id').value.trim(),
+    client_secret: document.getElementById('gd-client-secret').value.trim(),
+    folder_id:     document.getElementById('gd-folder-id')?.value.trim() || '',
+  };
+  const r = await api('POST', '/api/gdrive/configure', data);
+  if (r.success) {
+    showToast('Credentials saved — authorise Google Drive now', 'success');
+    await loadGdriveStatus();
+    gdriveAuthorise();
+  } else {
+    showToast(r.error || 'Failed', 'danger');
+  }
+}
+
+async function gdriveAuthorise() {
+  const r = await api('GET', '/api/gdrive/connect');
+  if (r.auth_url) {
+    window.open(r.auth_url, '_blank', 'width=520,height=620');
+    showToast('Complete the Google sign-in in the new window, then come back here and refresh.', 'primary');
+  } else {
+    showToast(r.error || 'Failed', 'danger');
+  }
+}
+
+async function gdriveBackupNow() {
+  showToast('Uploading to Google Drive…', 'primary');
+  const r = await api('POST', '/api/gdrive/backup_now');
+  showToast(r.message || r.error || 'Done', r.success ? 'success' : 'danger');
+}
+
+async function gdriveDisconnect() {
+  if (!confirm('Disconnect Google Drive? Auto-backup will stop.')) return;
+  const r = await api('POST', '/api/gdrive/disconnect');
+  if (r.success) { showToast('Disconnected', 'success'); loadGdriveStatus(); }
+}
+
 // ─────────────────────────── Utilities ───────────────────────────
 async function api(method, url, body) {
   const opts = { method, headers: {'Content-Type': 'application/json'}, credentials: 'same-origin' };
@@ -1735,6 +1900,9 @@ function showToast(msg, type = 'success') {
 
 // Close suggestions when clicking elsewhere
 document.addEventListener('click', e => {
+  if (!e.target.closest('#rec-client-filter') && !e.target.closest('#rec-client-suggestions')) {
+    document.getElementById('rec-client-suggestions').style.display = 'none';
+  }
   if (!e.target.closest('#bill-client-input') && !e.target.closest('#client-suggestions')) {
     document.getElementById('client-suggestions').innerHTML = '';
   }
