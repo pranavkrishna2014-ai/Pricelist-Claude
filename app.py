@@ -389,13 +389,13 @@ def update_price_full(pid):
 @app.route('/api/pricelist/export')
 @admin_required
 def export_pricelist():
-    """Download all prices as an Excel template the user can edit and re-upload."""
+    """Download all prices as an Excel template (no Size Metric column)."""
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment
 
     conn = get_db()
     rows = conn.execute(
-        "SELECT brand, product, size_code, size_metric, thickness, price FROM price_list "
+        "SELECT brand, product, size_code, thickness, price FROM price_list "
         "ORDER BY brand, product, size_code, thickness"
     ).fetchall()
     conn.close()
@@ -404,10 +404,10 @@ def export_pricelist():
     ws = wb.active
     ws.title = "Prices"
 
-    headers = ['Brand', 'Product', 'Size Code', 'Size Metric', 'Thickness', 'Price']
+    headers = ['Brand', 'Product', 'Size Code', 'Thickness', 'Price']
     ws.append(headers)
 
-    header_fill = PatternFill(start_color="0D6EFD", end_color="0D6EFD", fill_type="solid")
+    header_fill = PatternFill(start_color="4F46E5", end_color="4F46E5", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
     for col, _ in enumerate(headers, start=1):
         cell = ws.cell(row=1, column=col)
@@ -416,12 +416,10 @@ def export_pricelist():
         cell.alignment = Alignment(horizontal="center")
 
     for r in rows:
-        ws.append([r['brand'], r['product'], r['size_code'],
-                   r['size_metric'], r['thickness'], r['price']])
+        ws.append([r['brand'], r['product'], r['size_code'], r['thickness'], r['price']])
 
-    widths = [14, 22, 14, 18, 12, 12]
-    for col, w in enumerate(widths, start=1):
-        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = w
+    for col, w in zip('ABCDE', [16, 24, 14, 12, 12]):
+        ws.column_dimensions[col].width = w
     ws.freeze_panes = "A2"
 
     buf = io.BytesIO()
@@ -435,7 +433,7 @@ def export_pricelist():
 @app.route('/api/pricelist/import', methods=['POST'])
 @admin_required
 def import_pricelist():
-    """Read an uploaded Excel file and update/create prices accordingly."""
+    """Full replace: wipe all prices and insert exactly what the Excel contains."""
     import openpyxl
 
     f = request.files.get('file')
@@ -447,16 +445,25 @@ def import_pricelist():
         return jsonify({'error': 'Could not read the file. Please upload a valid .xlsx Excel file.'}), 400
 
     ws = wb.active
-    conn = get_db()
-    added = updated = skipped = 0
 
+    # Detect whether the file has the old 6-column format (with Size Metric) or new 5-column
+    header = [str(ws.cell(1, c).value or '').strip().lower() for c in range(1, ws.max_column + 1)]
+    has_size_metric = 'size metric' in header
+
+    new_rows = []
+    skipped  = 0
     for row in ws.iter_rows(min_row=2, values_only=True):
         if not row or all(c is None for c in row):
             continue
-        cells = (list(row) + [None] * 6)[:6]
-        brand, product, size_code, size_metric, thickness, price = cells
 
-        # Required fields
+        if has_size_metric:
+            cells = (list(row) + [None] * 6)[:6]
+            brand, product, size_code, size_metric, thickness, price = cells
+        else:
+            cells = (list(row) + [None] * 5)[:5]
+            brand, product, size_code, thickness, price = cells
+            size_metric = ''
+
         if not (brand and product and size_code and thickness):
             skipped += 1
             continue
@@ -471,27 +478,20 @@ def import_pricelist():
         except (ValueError, TypeError):
             price = 0
 
-        existing = conn.execute(
-            "SELECT id FROM price_list WHERE brand=? AND product=? AND size_code=? AND thickness=?",
-            (brand, product, size_code, thickness)
-        ).fetchone()
+        new_rows.append((brand, product, size_code, size_metric, thickness, price))
 
-        if existing:
-            conn.execute(
-                "UPDATE price_list SET size_metric=?, price=?, updated_at=datetime('now','localtime') WHERE id=?",
-                (size_metric, price, existing['id'])
-            )
-            updated += 1
-        else:
-            conn.execute(
-                "INSERT INTO price_list (brand,product,size_code,size_metric,thickness,price) VALUES (?,?,?,?,?,?)",
-                (brand, product, size_code, size_metric, thickness, price)
-            )
-            added += 1
+    if not new_rows:
+        return jsonify({'error': 'No valid rows found in the file. Nothing was changed.'}), 400
 
+    conn = get_db()
+    conn.execute("DELETE FROM price_list")
+    conn.executemany(
+        "INSERT INTO price_list (brand,product,size_code,size_metric,thickness,price) VALUES (?,?,?,?,?,?)",
+        new_rows
+    )
     conn.commit()
     conn.close()
-    return jsonify({'success': True, 'added': added, 'updated': updated, 'skipped': skipped})
+    return jsonify({'success': True, 'total': len(new_rows), 'skipped': skipped})
 
 @app.route('/api/pricelist/<int:pid>', methods=['DELETE'])
 @admin_required

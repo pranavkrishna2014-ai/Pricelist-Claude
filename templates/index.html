@@ -1527,7 +1527,7 @@ async function uploadExcel(input) {
     const res = await fetch('/api/pricelist/import', { method: 'POST', body: fd, credentials: 'same-origin' });
     const r = await res.json();
     if (r.success) {
-      showToast(`Excel applied — ${r.added} added, ${r.updated} updated${r.skipped ? ', ' + r.skipped + ' skipped' : ''}`, 'success');
+      showToast(`Pricelist replaced — ${r.total} products loaded${r.skipped ? ', ' + r.skipped + ' rows skipped' : ''}`, 'success');
       loadPriceList();
       STATE.products = await api('GET', '/api/products');
     } else {
