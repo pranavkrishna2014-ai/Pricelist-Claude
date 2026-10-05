@@ -1,0 +1,13 @@
+[build]
+  publish  = "public"
+  command  = "npm install"
+
+[functions]
+  node_bundler          = "esbuild"
+  external_node_modules = ["exceljs", "postgres", "bcryptjs"]
+
+# Cache-bust the app shell so an update reaches the office immediately
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
